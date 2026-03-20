@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch: {}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-win:
     runs-on: windows-latest
@@ -23,10 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Debug paths
+        shell: pwsh
+        run: |
+          Get-Location
+          dir
+          dir packaging
+          dir client_app
+          dir client_app/app
+
       - name: Build
         shell: pwsh
         run: |
-          pyinstaller -y packaging/pyinstaller.spec
+          pyinstaller -y packaging/pyinstaller.spec --log-level=DEBUG
 
       - name: Zip artifact
         shell: pwsh
