@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller pyside6
-          # 如果你项目有 requirements.txt，就加这一行：
+          # 如果你有 requirements.txt，就取消注释：
           # pip install -r requirements.txt
 
       - name: Sanity check paths
