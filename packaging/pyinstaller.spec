@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
-project_root = Path(__file__).resolve().parent.parent
+project_root = Path(globals().get("SPECPATH", ".")).resolve().parent
 entry = project_root / "client_app" / "app" / "main.py"
 
 block_cipher = None
