@@ -1078,7 +1078,7 @@ def reload_config():
     return {"ok": True, "loaded": bool(cfg)}
 # === CLIENT_CONFIG_BRIDGE_END ===
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
 
@@ -1108,7 +1108,7 @@ def _explode_zip_attachment(file_bytes: bytes, filename: str):
 
 @app.get("/")
 def home():
-    return FileResponse("app/static/index.html")
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "index.html"))
 
 
 @app.get("/health")

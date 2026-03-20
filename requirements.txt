@@ -11,3 +11,7 @@ imapclient
 pillow
 matplotlib
 sse-starlette
+
+pyzmail36
+xlsxwriter
+python-multipart

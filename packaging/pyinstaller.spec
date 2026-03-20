@@ -5,7 +5,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 project_root = Path(globals().get("SPECPATH", ".")).resolve().parent
-entry = project_root / "client_app" / "app" / "main.py"
+entry = project_root / "client_app" / "app" / "main_6002.py"
 
 block_cipher = None
 
@@ -46,8 +46,8 @@ a = Analysis(
     pathex=[str(project_root)],
     binaries=binaries,
     datas=datas + [
-        (str(project_root / "client_app" / "assets"), "assets"),
-        (str(project_root / "client_app" / "config"), "config_src"),
+        (str(project_root / "client_app" / "assets"), "client_app/assets"),
+        (str(project_root / "client_app" / "config" / "config.example.json"), "client_app/config"),
     ],
     hiddenimports=hiddenimports + hidden,
     hookspath=[],
