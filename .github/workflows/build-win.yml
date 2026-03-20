@@ -3,12 +3,11 @@ name: Build Windows EXE
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build-win:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,37 +16,36 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install deps
         shell: pwsh
         run: |
+          python -V
           python -m pip install --upgrade pip
-          pip install pyinstaller pyside6
-          # 如果你有 requirements.txt，就取消注释：
-          # pip install -r requirements.txt
+          python -m pip install -r requirements.txt
 
-      - name: Sanity check paths
+      - name: Build exe (PyInstaller)
         shell: pwsh
         run: |
-          ls
-          ls client_app
-          ls client_app/app
-          python -c "import PySide6; print('PySide6 ok', PySide6.__version__)"
-
-      - name: Build exe (no spec, safer)
-        shell: pwsh
-        run: |
-          pyinstaller `
-            --noconfirm `
-            --clean `
-            --name dake-client `
-            --windowed `
+          pyinstaller --noconfirm --clean --name DakeClient --windowed `
             --collect-all PySide6 `
+            --hidden-import uvicorn `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import fastapi `
+            --hidden-import starlette `
+            --add-data "client_app/config/config.example.json;client_app/config" `
             client_app/app/main.py
+
+      - name: Zip artifact
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/DakeClient/* -DestinationPath DakeClient-windows.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dake-client-win
-          path: dist/dake-client/**
+          name: DakeClient-windows
+          path: DakeClient-windows.zip
