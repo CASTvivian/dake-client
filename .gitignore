@@ -1,0 +1,25 @@
+# mac
+.DS_Store
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# build artifacts
+dist/
+build/
+*.spec.bak
+*.log
+
+# local runtime/config
+config/config.json
+data/
+
+# excel samples
+*.xlsx
+*.xls
+
+# misc garbage
+*fn(s))*
