@@ -2,20 +2,54 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 project_root = Path(__file__).resolve().parent.parent
 entry = project_root / "client_app" / "app" / "main.py"
 
 block_cipher = None
 
+hiddenimports = [
+    "requests",
+    "dotenv",
+    "openpyxl",
+    "xlrd",
+    "pandas",
+    "imapclient",
+    "PIL",
+    "matplotlib",
+    "fastapi",
+    "uvicorn",
+]
+
+datas, binaries, hidden = [], [], []
+for pkg in [
+    "requests",
+    "imapclient",
+    "openpyxl",
+    "xlrd",
+    "pandas",
+    "PIL",
+    "matplotlib",
+    "fastapi",
+    "uvicorn",
+    "dotenv",
+    "PySide6",
+]:
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hidden += h
+
 a = Analysis(
     [str(entry)],
     pathex=[str(project_root)],
-    binaries=[],
-    datas=[
+    binaries=binaries,
+    datas=datas + [
         (str(project_root / "client_app" / "assets"), "assets"),
         (str(project_root / "client_app" / "config"), "config_src"),
     ],
-    hiddenimports=[],
+    hiddenimports=hiddenimports + hidden,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

@@ -20,24 +20,13 @@ jobs:
       - name: Install deps
         shell: pwsh
         run: |
-          python -V
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          pip install -r requirements.txt
 
-      - name: Build exe (PyInstaller)
+      - name: Build
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --name DakeClient --windowed `
-            --collect-all PySide6 `
-            --hidden-import uvicorn `
-            --hidden-import uvicorn.logging `
-            --hidden-import uvicorn.loops.auto `
-            --hidden-import uvicorn.protocols.http.auto `
-            --hidden-import uvicorn.protocols.websockets.auto `
-            --hidden-import fastapi `
-            --hidden-import starlette `
-            --add-data "client_app/config/config.example.json;client_app/config" `
-            client_app/app/main.py
+          pyinstaller -y packaging/pyinstaller.spec
 
       - name: Zip artifact
         shell: pwsh
