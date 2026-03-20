@@ -1,0 +1,20 @@
+{
+  "imap": {
+    "host": "imap.qq.com",
+    "user": "xxx@qq.com",
+    "pass": "授权码",
+    "folders_mode": "all",
+    "folders_blacklist": ["Deleted", "Trash", "Junk", "Spam", "垃圾", "已删除", "Drafts", "草稿", "Sent", "已发送"],
+    "lookback_days": 3
+  },
+  "wecom": {
+    "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx",
+    "push_enabled": true
+  },
+  "products": [
+    {"code": "SBGZ87", "display_name": "缙云", "enabled": true},
+    {"code": "STR134", "display_name": "新力", "enabled": true},
+    {"code": "SXA927", "display_name": "放10", "enabled": true},
+    {"code": "SXZ218", "display_name": "放8", "enabled": true}
+  ]
+}
