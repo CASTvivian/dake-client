@@ -17,49 +17,37 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install deps
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller pyside6
+          # 如果你项目有 requirements.txt，就加这一行：
+          # pip install -r requirements.txt
 
-      - name: Build EXE
-        run: |
-          pyinstaller --clean --noconfirm packaging/pyinstaller.spec
-
-      - name: Assemble runtime folder
+      - name: Sanity check paths
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist_runtime | Out-Null
-          Copy-Item -Recurse -Force dist\DakeClient\* dist_runtime\
+          ls
+          ls client_app
+          ls client_app/app
+          python -c "import PySide6; print('PySide6 ok', PySide6.__version__)"
 
-          New-Item -ItemType Directory -Force -Path dist_runtime\data\xlsx_merge_6000 | Out-Null
-          New-Item -ItemType Directory -Force -Path dist_runtime\data\nav_report_6002 | Out-Null
-
-          New-Item -ItemType Directory -Force -Path dist_runtime\config | Out-Null
-          if (Test-Path "client_app\config\config.example.json") {
-            Copy-Item client_app\config\config.example.json dist_runtime\config\config.json -Force
-          }
-
-          "@
-Dake Client (Windows)
-- Run: DakeClient.exe
-- Config: .\config\config.json
-- Data:
-  - 6000: .\data\xlsx_merge_6000
-  - 6002: .\data\nav_report_6002
-@" | Out-File -Encoding utf8 dist_runtime\README.txt
-
-      - name: Zip artifact
+      - name: Build exe (no spec, safer)
         shell: pwsh
         run: |
-          $ver = "${{ github.sha }}".Substring(0,7)
-          $zip = "client-win-x64-$ver.zip"
-          Compress-Archive -Path dist_runtime\* -DestinationPath $zip -Force
-          echo "ZIP_NAME=$zip" >> $env:GITHUB_ENV
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --name dake-client `
+            --windowed `
+            --collect-all PySide6 `
+            client_app/app/main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_NAME }}
+          name: dake-client-win
+          path: dist/dake-client/**
