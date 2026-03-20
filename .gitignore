@@ -23,3 +23,6 @@ data/
 
 # misc garbage
 *fn(s))*
+
+# local macOS test artifact for Windows default path
+C:\\DakeClient\\data/
