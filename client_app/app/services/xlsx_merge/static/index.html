@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>持仓比例汇总</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial; padding:24px; max-width:860px; margin:0 auto;}
+    .card{border:1px solid #eee; border-radius:14px; padding:14px; margin-top:14px;}
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;}
+    input[type="text"], input[type="number"]{padding:8px 10px; border:1px solid #ddd; border-radius:10px;}
+    input[type="file"]{padding:12px; border:1px dashed #bbb; border-radius:12px; width:100%;}
+    button{padding:10px 14px; border:0; border-radius:12px; cursor:pointer;}
+    button.primary{background:#111; color:#fff;}
+    button.danger{background:#ffe6e6;}
+    button:disabled{opacity:.6; cursor:not-allowed;}
+    small{color:#666;}
+    pre{background:#0b1020; color:#d6e7ff; padding:12px; border-radius:12px; overflow:auto;}
+    .status{margin-top:10px; color:#333; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .bar{height:8px; width:320px; background:#eee; border-radius:999px; overflow:hidden;}
+    .bar > div{height:100%; width:0%; background:#111; transition:width .2s ease;}
+    .pill{font-size:12px; padding:4px 8px; border-radius:999px; background:#f3f3f3;}
+    .muted{color:#666;}
+  </style>
+</head>
+<body>
+  <h2>持仓比例汇总（无留痕）</h2>
+
+  <div class="card">
+    <div class="row">
+      <div style="flex:1; min-width:260px">
+        <div><small>选择多个 Excel（.xlsx）</small></div>
+        <input id="files" type="file" multiple accept=".xlsx"/>
+      </div>
+      <div>
+        <div><small>目标金额（默认 500w）</small></div>
+        <input id="target_amount" type="number" value="5000000"/>
+      </div>
+      <div>
+        <div><small>日期（可选，格式 20260302；留空=当天）</small></div>
+        <input id="date_str" type="text" placeholder="YYYYMMDD"/>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btnMerge">生成并下载 Excel</button>
+      <button id="btnPreview">预览（JSON）</button>
+      <button class="danger" id="btnCancel" disabled>取消</button>
+    </div>
+
+    <div class="status">
+      <div class="pill" id="stage">就绪</div>
+      <div class="bar"><div id="barFill"></div></div>
+      <div class="muted" id="msg"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div><b>预览输出</b>（仅当前请求，页面不保存任何记录）</div>
+    <pre id="previewBox">可选：点击“预览（JSON）”。</pre>
+  </div>
+
+<script>
+const btnMerge = document.getElementById('btnMerge');
+const btnPreview = document.getElementById('btnPreview');
+const btnCancel = document.getElementById('btnCancel');
+const stageEl = document.getElementById('stage');
+const barFill = document.getElementById('barFill');
+const msgEl = document.getElementById('msg');
+const previewBox = document.getElementById('previewBox');
+
+let currentXhr = null;
+let currentJob = null;
+let currentES = null;
+let pollTimer = null;
+
+function setUIBusy(busy){
+  btnMerge.disabled = busy;
+  btnPreview.disabled = busy;
+  btnCancel.disabled = !busy;
+}
+
+function setStage(stage, percent=null, msg=''){
+  stageEl.textContent = stage;
+  msgEl.textContent = msg || '';
+  if(percent === null){
+    barFill.style.width = '0%';
+    return;
+  }
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  barFill.style.width = `${p}%`;
+}
+
+function getToday(){
+  const pad = (n)=>String(n).padStart(2,'0');
+  const now = new Date();
+  return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`;
+}
+
+
+function showDone(filename){
+  setStage('完成', 100, `已生成：${filename}`);
+  // 2 秒后恢复就绪
+  setTimeout(()=>{
+    setStage('就绪', null, '');
+  }, 2000);
+}
+
+
+function forcedFileName(jobDate){
+  const inputDate = (document.getElementById('date_str')?.value || '').trim();
+  const d = inputDate || jobDate || getToday();
+  return `持仓比例-${d}.xlsx`;
+}
+
+function buildFormData(){
+  const files = document.getElementById('files').files;
+  if(!files || files.length===0){
+    alert('请先选择至少一个 .xlsx 文件');
+    return null;
+  }
+  const fd = new FormData();
+  for(const f of files){ fd.append('files[]', f); }
+  fd.append('target_amount', document.getElementById('target_amount').value || '5000000');
+  const d = (document.getElementById('date_str').value || '').trim();
+  if(d) fd.append('date_str', d);
+  return fd;
+}
+
+function xhrPost(url, formData, {responseType='json'}={}){
+  return new Promise((resolve, reject)=>{
+    const xhr = new XMLHttpRequest();
+    currentXhr = xhr;
+    xhr.open('POST', url, true);
+    xhr.responseType = responseType;
+
+    xhr.upload.onprogress = (e)=>{
+      if(e.lengthComputable){
+        setStage('上传中', (e.loaded/e.total)*100, `${(e.loaded/1024/1024).toFixed(2)}MB / ${(e.total/1024/1024).toFixed(2)}MB`);
+      } else {
+        setStage('上传中…', null, '');
+      }
+    };
+
+    xhr.onerror = ()=> reject(new Error('网络错误/连接失败'));
+    xhr.onabort = ()=> reject(new Error('已取消'));
+    xhr.onload = ()=>{
+      if(xhr.status >= 200 && xhr.status < 300){
+        resolve({xhr, data: xhr.response});
+      } else {
+        let errText = '';
+        try{ errText = (typeof xhr.response === 'string') ? xhr.response : JSON.stringify(xhr.response); }
+        catch(e){ errText = '(无法读取错误详情)'; }
+        reject(new Error(`HTTP ${xhr.status}\n${errText}`));
+      }
+    };
+    xhr.send(formData);
+  });
+}
+
+function closeES(){
+  if(currentES){
+    try{ currentES.close(); }catch(e){}
+    currentES = null;
+  }
+}
+
+function stopJobPolling(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function downloadByBlob(job){
+  let jobDate = null;
+  try{
+    const jr = await fetch(job.job_url || (`/api/job/${job.job_id}`), {cache:'no-store'});
+    if(jr.ok){
+      const jj = await jr.json();
+      jobDate = jj.date || null;
+    }
+  }catch(e){}
+
+  const resp = await fetch(job.download_blob_url || (`/api/download_blob/${job.job_id}`), {cache:'no-store'});
+  if(!resp.ok){
+    const t = await resp.text().catch(()=> '');
+    throw new Error(`下载失败 HTTP ${resp.status}\n${t}`);
+  }
+  const blob = await resp.blob();
+  const filename = forcedFileName(jobDate);
+
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  try{ showDone(filename); }catch(e){}
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+}
+
+function startJobPolling(job){
+  stopJobPolling();
+  let tries = 0;
+  const maxTries = 180; // 约 6 分钟（2s一次）
+
+  pollTimer = setInterval(async ()=>{
+    tries += 1;
+    if(tries > maxTries){
+      stopJobPolling();
+      setUIBusy(false);
+      currentJob = null;
+      alert('轮询超时：任务可能仍在处理。你可以稍后重试或重新生成。');
+      setStage('就绪', null, '');
+      return;
+    }
+
+    try{
+      const r = await fetch(job.job_url || (`/api/job/${job.job_id}`), {cache:'no-store'});
+      if(!r.ok) return;
+      const j = await r.json();
+
+      if(j.status === 'error'){
+        stopJobPolling();
+        setUIBusy(false);
+        currentJob = null;
+        alert(`生成失败：\n${j.error || ''}`);
+        setStage('就绪', null, '');
+        return;
+      }
+
+      if(j.status === 'done' && j.has_result){
+        stopJobPolling();
+        setStage('完成', 100, '准备下载…');
+        try{ await downloadByBlob(job); }
+        catch(err){ alert(String(err.message || err)); }
+        finally{
+          setUIBusy(false);
+          currentJob = null;
+        }
+      } else {
+        setStage('服务器处理中…', null, `进度连接断开，已切换轮询等待（${tries}/${maxTries}）…`);
+      }
+    }catch(e){
+      // ignore
+    }
+  }, 2000);
+}
+
+async function cancelAll(){
+  if(currentXhr){
+    try{ currentXhr.abort(); }catch(e){}
+    currentXhr = null;
+  }
+  if(currentJob){
+    try{ await fetch(currentJob.cancel_url || (`/api/cancel/${currentJob.job_id}`), {method:'POST'}); }catch(e){}
+    currentJob = null;
+  }
+  closeES();
+  stopJobPolling();
+  setUIBusy(false);
+  setStage('就绪', null, '');
+}
+
+btnCancel.onclick = ()=> cancelAll();
+
+btnPreview.onclick = async ()=>{
+  const fd = buildFormData();
+  if(!fd) return;
+
+  setUIBusy(true);
+  try{
+    setStage('上传中', 0, '准备预览…');
+    const {data} = await xhrPost('/api/preview', fd, {responseType:'json'});
+    previewBox.textContent = JSON.stringify(data, null, 2);
+    setStage('预览完成', 100, '完成');
+    setTimeout(()=>setStage('就绪', null, ''), 800);
+  }catch(e){
+    alert(String(e.message || e));
+    setStage('就绪', null, '');
+  }finally{
+    setUIBusy(false);
+    currentXhr = null;
+  }
+};
+
+btnMerge.onclick = async ()=>{
+  const fd = buildFormData();
+  if(!fd) return;
+
+  setUIBusy(true);
+  stopJobPolling();
+  closeES();
+
+  try{
+    setStage('上传中', 0, '准备创建任务…');
+    const {data} = await xhrPost('/api/merge_job', fd, {responseType:'json'});
+    currentJob = data;
+
+    setStage('服务器处理中…', null, '等待进度…');
+
+    currentES = new EventSource(currentJob.progress_url);
+
+    currentES.addEventListener('message', (ev)=>{
+      try{
+        const payload = JSON.parse(ev.data);
+        const stage = payload.stage || 'processing';
+        const prog = (payload.progress === undefined || payload.progress === null) ? null : Number(payload.progress);
+        const msg = payload.message || '';
+
+        if(stage === 'connected'){
+          setStage('服务器处理中…', null, '已连接');
+          return;
+        }
+
+        if(stage === 'error'){
+          closeES();
+          stopJobPolling();
+          setUIBusy(false);
+          currentJob = null;
+          alert(`生成失败：\n${msg}`);
+          setStage('就绪', null, '');
+          return;
+        }
+
+        if(stage === 'done'){
+          closeES();
+          stopJobPolling();
+          setStage('完成', 100, '准备下载…');
+          (async ()=>{
+            try{ await downloadByBlob(currentJob); }
+            catch(err){ alert(String(err.message || err)); }
+            finally{
+              setUIBusy(false);
+              currentJob = null;
+            }
+          })();
+          return;
+        }
+
+        const labelMap = {start:'开始', parse:'解析', merge:'计算', write:'生成Excel'};
+        const label = labelMap[stage] || '服务器处理中…';
+        setStage(label, prog, msg);
+      }catch(e){}
+    });
+
+    currentES.addEventListener('ping', ()=>{});
+
+    currentES.onerror = () => {
+      // SSE 断线：切换 /api/job 轮询兜底
+      closeES();
+      const job = currentJob;
+      if(!job){
+        setUIBusy(false);
+        setStage('就绪', null, '');
+        return;
+      }
+      setStage('服务器处理中…', null, '进度连接断开，已切换轮询等待…');
+      startJobPolling(job);
+    };
+
+  }catch(e){
+    alert(String(e.message || e));
+    setStage('就绪', null, '');
+    setUIBusy(false);
+  }finally{
+    currentXhr = null;
+  }
+};
+</script>
+</body>
+</html>

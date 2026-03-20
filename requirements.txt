@@ -1,2 +1,13 @@
 PySide6==6.7.2
 pyinstaller==6.10.0
+fastapi
+uvicorn
+python-dotenv
+requests
+openpyxl
+xlrd==1.2.0
+pandas
+imapclient
+pillow
+matplotlib
+sse-starlette

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>NAV Report Test</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto;max-width:920px;margin:24px auto;padding:0 16px;}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0;}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #ccc;background:#fff;cursor:pointer;margin-right:8px;}
+    button:disabled{opacity:.5;cursor:not-allowed;}
+    pre{background:#0b1020;color:#d6e7ff;padding:12px;border-radius:10px;overflow:auto;}
+    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+    .hint{color:#666;font-size:13px}
+    a{word-break:break-all}
+    img{max-width:100%;border:1px solid #eee;border-radius:10px;margin-top:8px}
+    input[type="text"]{padding:8px 10px;border-radius:10px;border:1px solid #ccc;min-width:180px;}
+    label{user-select:none}
+  </style>
+</head>
+<body>
+  <h2>净值抓取/推送测试页（无敏感信息）</h2>
+  <div class="hint">测试模式：每次上传/生成可一键清空当天数据，避免旧产物/缓存干扰。</div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btnHealth">健康检查</button>
+      <button id="btnReset">清空当天测试数据</button>
+      <button id="btnProcess">处理生成（不推送）</button>
+      <button id="btnList">刷新产物列表</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label><input type="checkbox" id="chkAutoReset" checked> 上传前自动清空当天（推荐）</label>
+      <label><input type="checkbox" id="chkAutoResetBeforeProcess" checked> 处理前自动清空当天（仅测试用）</label>
+    </div>
+    <div class="hint" style="margin-top:10px;">
+      说明：若勾选“处理前自动清空”，你必须先上传再处理；否则会清空到没数据。
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label>日期(可选 YYYYMMDD)：</label>
+      <input id="date" placeholder="留空=当天" type="text"/>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label>上传测试 XLSX：</label>
+      <input id="files" type="file" multiple accept=".xlsx"/>
+      <button id="btnUpload">上传并登记（模拟收集）</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div><b>输出日志</b></div>
+    <pre id="out">等待操作…</pre>
+  </div>
+
+  <div class="card">
+    <div class="row"><b>今日产物</b></div>
+    <div id="links"></div>
+    <div id="imgs"></div>
+  </div>
+
+<script>
+const out = document.getElementById('out');
+const links = document.getElementById('links');
+const imgs = document.getElementById('imgs');
+const date = () => (document.getElementById('date').value || '').trim();
+const autoReset = () => document.getElementById('chkAutoReset').checked;
+const autoResetBeforeProcess = () => document.getElementById('chkAutoResetBeforeProcess').checked;
+
+function setText(x){ out.textContent = x; }
+function jstr(x){ return JSON.stringify(x, null, 2); }
+
+async function postJson(url, body){
+  const r = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  const t = await r.text();
+  if(!r.ok) throw new Error(`HTTP ${r.status}\n${t}`);
+  try{ return JSON.parse(t); } catch(e){ return {raw:t}; }
+}
+
+async function resetDay(){
+  const j = await postJson('/api/reset_test_day', {date_str: date()});
+  return j;
+}
+
+async function refreshArtifacts(){
+  links.innerHTML = '';
+  imgs.innerHTML = '';
+  const qs = new URLSearchParams();
+  if(date()) qs.set('date_str', date());
+  const r = await fetch('/api/artifacts?' + qs.toString());
+  const j = await r.json();
+  const ds = j.date;
+
+  if(!j.files || j.files.length === 0){
+    links.innerHTML = '<div class="hint">暂无产物</div>';
+    return;
+  }
+
+  const bust = Date.now(); // 防缓存
+  const list = document.createElement('ul');
+
+  for(const fn of j.files){
+    const url = `/download?date_str=${encodeURIComponent(ds)}&filename=${encodeURIComponent(fn)}&v=${bust}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.textContent = fn;
+    a.target = '_blank';
+    const li = document.createElement('li');
+    li.appendChild(a);
+    list.appendChild(li);
+
+    if(fn.endsWith('.png')){
+      const im = document.createElement('img');
+      im.src = url; // 带 v 防缓存
+      imgs.appendChild(im);
+    }
+  }
+  links.appendChild(list);
+}
+
+document.getElementById('btnHealth').onclick = async ()=>{
+  setText('请求中…');
+  const r = await fetch('/health');
+  setText(await r.text());
+};
+
+document.getElementById('btnReset').onclick = async ()=>{
+  setText('清空中…');
+  try{
+    const j = await resetDay();
+    setText(jstr(j));
+    await refreshArtifacts();
+  }catch(e){
+    setText(String(e));
+  }
+};
+
+document.getElementById('btnUpload').onclick = async ()=>{
+  const input = document.getElementById('files');
+  if(!input.files || input.files.length===0){
+    setText('请先选择要上传的 .xlsx 文件');
+    return;
+  }
+  setText('上传中…');
+  try{
+    if(autoReset()){
+      await resetDay();
+    }
+    const fd = new FormData();
+    for(const f of input.files) fd.append('files', f);
+    fd.append('date_str', date());
+    const r = await fetch('/api/upload_test', {method:'POST', body: fd});
+    const t = await r.text();
+    if(!r.ok){ setText(`HTTP ${r.status}\n${t}`); return; }
+    setText(t);
+    await refreshArtifacts();
+  }catch(e){
+    setText(String(e));
+  }
+};
+
+document.getElementById('btnProcess').onclick = async ()=>{
+  setText('处理中…（生成 Excel + 两张图）');
+  try{
+    if(autoResetBeforeProcess()){
+      // 注意：处理前清空只适合你想“每次只认这一次上传”的测试习惯
+      // 但会清掉之前上传；所以一般是：上传前清空即可，处理前清空可取消勾选
+      // 这里不自动清空 raw_ingest（否则没数据），只清 out 目录更合理
+      // 为了不误清，这里改成：仅刷新列表，不做清空
+    }
+    const j = await postJson('/api/process_and_push', {date_str: date()});
+    setText(jstr(j));
+    await refreshArtifacts();
+  }catch(e){
+    setText(String(e));
+  }
+};
+
+document.getElementById('btnList').onclick = async ()=>{
+  setText('刷新中…');
+  await refreshArtifacts();
+  setText('已刷新产物列表（已加防缓存参数）');
+};
+
+refreshArtifacts().catch(()=>{});
+</script>
+</body>
+</html>
