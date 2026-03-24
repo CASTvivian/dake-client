@@ -1861,6 +1861,17 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
 
         # disabled: no 昨日对比 image
 
+        validation = _validate_process_outputs(
+            today,
+            rows,
+            out_xlsx=out_xlsx,
+            out_manifest=out_manifest,
+            out_img_today=out_img_today,
+            out_img_cmp=out_img_cmp,
+        )
+        if not validation["ok"]:
+            raise RuntimeError("OUTPUT_VALIDATION_FAIL:" + ";".join(validation["issues"]))
+
         corp_id = os.getenv("WECOM_CORP_ID", "").strip()
         agent_id = os.getenv("WECOM_AGENT_ID", "").strip()
         secret = os.getenv("WECOM_APP_SECRET", "").strip()
@@ -1973,6 +1984,7 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             "out_xlsx": out_xlsx,
             "out_manifest": out_manifest,
             "out_img_today": out_img_today,
+            "validation": validation,
             "pushed": pushed,
             "push_error": push_error,
         }
@@ -2425,7 +2437,93 @@ def _write_raw_manifest_from_db(date_str: str, out_path: str, base_url: str = ""
     return {"rows": len(rows), "path": out_path}
 
 
+def _count_report_xlsx_rows(out_xlsx: str) -> int:
+    from openpyxl import load_workbook
 
+    wb = load_workbook(out_xlsx, data_only=True)
+    ws = wb.active
+
+    header_row = None
+    name_col = None
+    max_scan_row = min(ws.max_row or 0, 20)
+    max_scan_col = min(ws.max_column or 0, 20)
+    for r in range(1, max_scan_row + 1):
+        for c in range(1, max_scan_col + 1):
+            v = ws.cell(r, c).value
+            if isinstance(v, str) and ("产品" in v) and ("名称" in v):
+                header_row = r
+                name_col = c
+                break
+        if header_row is not None:
+            break
+
+    if header_row is None or name_col is None:
+        raise ValueError("xlsx header row not found")
+
+    rows = 0
+    for r in range(header_row + 1, (ws.max_row or 0) + 1):
+        v = ws.cell(r, name_col).value
+        if v is None:
+            continue
+        if str(v).strip() == "":
+            continue
+        rows += 1
+    return rows
+
+
+def _validate_process_outputs(date_str: str, rows: list[dict], out_xlsx: str, out_manifest: str, out_img_today: str, out_img_cmp: str | None = None) -> dict:
+    expected_excel_rows = len(rows)
+    expected_metrics_rows = len([r for r in rows if not r.get("missing")])
+
+    validation = {
+        "ok": True,
+        "expected_excel_rows": expected_excel_rows,
+        "expected_metrics_rows": expected_metrics_rows,
+        "daily_metrics_rows": 0,
+        "xlsx_rows": 0,
+        "manifest_exists": os.path.exists(out_manifest),
+        "img_today_exists": os.path.exists(out_img_today),
+        "cmp_exists": bool(out_img_cmp and os.path.exists(out_img_cmp)),
+        "issues": [],
+    }
+
+    with connect(DATA_DIR) as conn_obj:
+        cur = conn_obj.cursor()
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT DISTINCT product_key
+                FROM daily_metrics
+                WHERE date=?
+            ) t
+            """,
+            (date_str,),
+        )
+        one = cur.fetchone()
+        validation["daily_metrics_rows"] = int(one[0] or 0) if one else 0
+
+    try:
+        validation["xlsx_rows"] = _count_report_xlsx_rows(out_xlsx)
+    except Exception as e:
+        validation["issues"].append(f"xlsx_read_fail:{e}")
+
+    if validation["daily_metrics_rows"] < expected_metrics_rows:
+        validation["issues"].append(
+            f"daily_metrics_rows<{expected_metrics_rows}:{validation['daily_metrics_rows']}"
+        )
+    if validation["xlsx_rows"] != expected_excel_rows:
+        validation["issues"].append(
+            f"xlsx_rows!={expected_excel_rows}:{validation['xlsx_rows']}"
+        )
+    if not validation["manifest_exists"]:
+        validation["issues"].append("manifest_missing")
+    if not validation["img_today_exists"]:
+        validation["issues"].append("img_today_missing")
+    if validation["cmp_exists"]:
+        validation["issues"].append("cmp_should_not_exist")
+
+    validation["ok"] = len(validation["issues"]) == 0
+    return validation
 
 
 def _extract_valuation_date(file_bytes: bytes, fallback_ymd: str) -> str:
