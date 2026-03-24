@@ -1828,7 +1828,13 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             _log_fetch("FINAL_SERIES_OVERRIDE_FAIL", err=str(e))
 
         out_img_today = os.path.join(out_dir, f"净值日报-{today}.png")
-        out_img_cmp = os.path.join(out_dir, f"昨日对比-{today}.png")
+        stale_out_img_cmp = os.path.join(out_dir, f"昨日对比-{today}.png")
+        if os.path.exists(stale_out_img_cmp):
+            try:
+                os.remove(stale_out_img_cmp)
+            except Exception:
+                pass
+        out_img_cmp = None
 
         build_excel(out_xlsx, today, rows)
         try:
@@ -1853,45 +1859,7 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             )
         render_table_image(out_img_today, title1, headers1, img1_rows, highlight_cols=[2, 3, 4, 5])
 
-        with connect(DATA_DIR) as conn_obj:
-            cur = conn_obj.cursor()
-
-            def prev_nav(product_key: str):
-                # use nav_series as source-of-truth for previous trading day NAV
-                cur.execute(
-                    """
-                    SELECT date, COALESCE(unit_nav, nav)
-                    FROM nav_series
-                    WHERE product_key=? AND date<? AND COALESCE(unit_nav, nav) IS NOT NULL
-                    ORDER BY date DESC
-                    LIMIT 1
-                    """,
-                    (product_key, today),
-                )
-                rr = cur.fetchone()
-                return (rr[0], rr[1]) if rr else (None, None)
-
-            title2 = f"昨日对比 {dt.year}/{dt.month:02d}/{dt.day:02d}"
-            headers2 = ["产品名称", nav_col, "昨日净值", "净值变动", "当日", "当周", "当月"]
-            img2_rows = []
-            for r in rows:
-                _prev_date, pn = prev_nav(r["product_key"])
-                tn = r.get("nav")
-                delta = None
-                if isinstance(tn, (int, float)) and isinstance(pn, (int, float)):
-                    delta = tn - pn
-                img2_rows.append(
-                    [
-                        short_product_name(r.get("display_key") or r["product_key"], max_len=8),
-                        fmt_num(tn, 4),
-                        fmt_num(pn, 4),
-                        fmt_num(delta, 4) if delta is not None else "--",
-                        fmt_pct(r.get("day_pct")),
-                        fmt_pct(r.get("week_pct")),
-                        fmt_pct(r.get("month_pct")),
-                    ]
-                )
-        render_table_image(out_img_cmp, title2, headers2, img2_rows, highlight_cols=[3, 4, 5, 6])
+        # disabled: no 昨日对比 image
 
         corp_id = os.getenv("WECOM_CORP_ID", "").strip()
         agent_id = os.getenv("WECOM_AGENT_ID", "").strip()
@@ -1909,8 +1877,7 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
                 mid_img1 = upload_media(token, "image", os.path.basename(out_img_today), Path(out_img_today).read_bytes())
                 send_chat_image(token, chatid, mid_img1)
 
-                mid_img2 = upload_media(token, "image", os.path.basename(out_img_cmp), Path(out_img_cmp).read_bytes())
-                send_chat_image(token, chatid, mid_img2)
+                # disabled: no 昨日对比 image
 
                 mid_file = upload_media(token, "file", os.path.basename(out_xlsx), Path(out_xlsx).read_bytes())
                 send_chat_file(token, chatid, mid_file)
@@ -1984,8 +1951,7 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
                 send_markdown(webhook_url_or_key, markdown_content)
                 with open(out_img_today, "rb") as f:
                     send_image_b64(webhook_url_or_key, base64.b64encode(f.read()).decode("utf-8"))
-                with open(out_img_cmp, "rb") as f:
-                    send_image_b64(webhook_url_or_key, base64.b64encode(f.read()).decode("utf-8"))
+                # disabled: no 昨日对比 image
                 with open(out_xlsx, "rb") as f:
                     send_file_b64(webhook_url_or_key, os.path.basename(out_xlsx), base64.b64encode(f.read()).decode("utf-8"))
                 pushed = True
@@ -2007,7 +1973,6 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             "out_xlsx": out_xlsx,
             "out_manifest": out_manifest,
             "out_img_today": out_img_today,
-            "out_img_cmp": out_img_cmp,
             "pushed": pushed,
             "push_error": push_error,
         }
@@ -2184,9 +2149,8 @@ if TEST_MODE:
         xlsx = os.path.join(out_dir, f"净值汇总-{date_str}.xlsx")
         manifest_xlsx = os.path.join(out_dir, f"原文件清单-{date_str}.xlsx")
         img1 = os.path.join(out_dir, f"净值日报-{date_str}.png")
-        img2 = os.path.join(out_dir, f"昨日对比-{date_str}.png")
 
-        for fp in (xlsx, img1, img2):
+        for fp in (xlsx, img1):
             if not os.path.exists(fp):
                 raise HTTPException(status_code=404, detail=f"missing artifact: {os.path.basename(fp)}")
 
@@ -2254,12 +2218,11 @@ if TEST_MODE:
 
         with open(img1, "rb") as f:
             send_image_b64(webhook_url_or_key, base64.b64encode(f.read()).decode("utf-8"))
-        with open(img2, "rb") as f:
-            send_image_b64(webhook_url_or_key, base64.b64encode(f.read()).decode("utf-8"))
+        # disabled: no 昨日对比 image
         with open(xlsx, "rb") as f:
             send_file_b64(webhook_url_or_key, os.path.basename(xlsx), base64.b64encode(f.read()).decode("utf-8"))
 
-        return {"ok": True, "date": date_str, "sent": ["markdown", "img1", "img2", "xlsx"]}
+        return {"ok": True, "date": date_str, "sent": ["markdown", "img1", "xlsx"]}
 
 
 
