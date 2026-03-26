@@ -9,12 +9,16 @@ entry = project_root / "client_app" / "app" / "main_6000.py"
 block_cipher = None
 
 hiddenimports = [
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "dotenv",
     "PySide6",
 ]
 
 packages = [
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "dotenv",
     "PySide6",

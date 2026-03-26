@@ -9,6 +9,8 @@ entry = project_root / "client_app" / "app" / "main_6002.py"
 block_cipher = None
 
 hiddenimports = [
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "dotenv",
     "openpyxl",
@@ -25,6 +27,8 @@ hiddenimports = [
 ]
 
 packages = [
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "imapclient",
     "openpyxl",
