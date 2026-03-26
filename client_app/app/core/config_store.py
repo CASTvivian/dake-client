@@ -115,6 +115,7 @@ class ConfigStore:
             "wecom_webhook_url": "",
             "push_enabled": True,
             "push_slots": DEFAULT_PUSH_SLOTS,
+            "last_success_push": "--",
             "nav_port": 16002,
             "xlsx_port": 16000,
             "merge_target_amount": 5000000,

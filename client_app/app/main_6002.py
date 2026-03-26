@@ -106,10 +106,10 @@ class Main6002(QMainWindow):
         layout = QVBoxLayout(root)
 
         top = QHBoxLayout()
-        self.lb_status = QLabel("运行状态：未知")
-        self.lb_target = QLabel("今日目标估值日：--")
-        self.lb_next = QLabel("下一次任务：--")
-        self.lb_last = QLabel(f"上次成功推送：{self._last_success_text}")
+        self.lb_status = QLabel(f"{tr('label_status')}：{tr('status_unknown')}")
+        self.lb_target = QLabel(f"{tr('label_target_date')}：--")
+        self.lb_next = QLabel(f"{tr('label_next_slot')}：--")
+        self.lb_last = QLabel(f"{tr('label_last_push')}：{self._last_success_text}")
         top.addWidget(self.lb_status)
         top.addStretch(1)
         top.addWidget(self.lb_target)
@@ -119,11 +119,11 @@ class Main6002(QMainWindow):
         top.addWidget(self.lb_last)
         layout.addLayout(top)
 
-        box_data = QGroupBox("数据目录")
+        box_data = QGroupBox(tr("group_data_dir"))
         data_layout = QHBoxLayout(box_data)
         self.ed_data_root = QLineEdit()
-        self.btn_pick_dir = QPushButton("选择数据目录")
-        self.btn_open_data = QPushButton("打开数据目录")
+        self.btn_pick_dir = QPushButton(tr("btn_pick_dir"))
+        self.btn_open_data = QPushButton(tr("btn_open_dir"))
         self.btn_pick_dir.clicked.connect(self._pick_dir)
         self.btn_open_data.clicked.connect(self._open_data_dir)
         data_layout.addWidget(self.ed_data_root, 1)
@@ -131,7 +131,7 @@ class Main6002(QMainWindow):
         data_layout.addWidget(self.btn_open_data)
         layout.addWidget(box_data)
 
-        box_imap = QGroupBox("邮箱配置")
+        box_imap = QGroupBox(tr("group_imap"))
         imap_form = QFormLayout(box_imap)
         self.ed_imap_host = QLineEdit()
         self.ed_imap_user = QLineEdit()
@@ -141,45 +141,45 @@ class Main6002(QMainWindow):
         self.ed_folder_mode = QLineEdit("all")
         self.ed_folders = QLineEdit()
         self.ed_blacklist = QLineEdit()
-        imap_form.addRow("邮箱服务器地址", self.ed_imap_host)
-        imap_form.addRow("邮箱账号", self.ed_imap_user)
-        imap_form.addRow("邮箱密码/授权码", self.ed_imap_pass)
-        imap_form.addRow("回溯天数", self.ed_lookback)
-        imap_form.addRow("扫描模式（全部 / 指定）", self.ed_folder_mode)
-        imap_form.addRow("扫描文件夹（逗号）", self.ed_folders)
-        imap_form.addRow("黑名单文件夹（逗号）", self.ed_blacklist)
+        imap_form.addRow(tr("label_imap_host"), self.ed_imap_host)
+        imap_form.addRow(tr("label_imap_user"), self.ed_imap_user)
+        imap_form.addRow(tr("label_imap_pass"), self.ed_imap_pass)
+        imap_form.addRow(tr("label_lookback_days"), self.ed_lookback)
+        imap_form.addRow(tr("label_folder_mode"), self.ed_folder_mode)
+        imap_form.addRow(tr("label_folders"), self.ed_folders)
+        imap_form.addRow(tr("label_blacklist"), self.ed_blacklist)
         layout.addWidget(box_imap)
 
-        box_push = QGroupBox("推送配置")
+        box_push = QGroupBox(tr("group_push"))
         push_form = QFormLayout(box_push)
-        self.chk_push = QCheckBox("启用推送")
+        self.chk_push = QCheckBox(tr("label_push_enabled"))
         self.ed_webhook = QLineEdit()
         self.ed_slots = QLineEdit("14:00,16:00,16:46")
         row_webhook = QHBoxLayout()
         row_webhook.addWidget(self.ed_webhook, 1)
-        self.btn_test_webhook = QPushButton("测试 Webhook")
+        self.btn_test_webhook = QPushButton(tr("btn_test_webhook"))
         self.btn_test_webhook.clicked.connect(self._test_webhook)
         row_webhook.addWidget(self.btn_test_webhook)
         push_form.addRow("", self.chk_push)
-        push_form.addRow("企业微信机器人地址", row_webhook)
-        push_form.addRow("推送时段", self.ed_slots)
+        push_form.addRow(tr("label_webhook"), row_webhook)
+        push_form.addRow(tr("label_push_slots"), self.ed_slots)
         layout.addWidget(box_push)
 
-        box_products = QGroupBox("产品白名单（禁用后报表完全不出现）")
+        box_products = QGroupBox(tr("group_products"))
         prod_layout = QVBoxLayout(box_products)
         self.tbl_products = QTableWidget(0, 3)
-        self.tbl_products.setHorizontalHeaderLabels(["产品代码", "中文简称", "启用状态"])
+        self.tbl_products.setHorizontalHeaderLabels([tr("label_product_code"), tr("label_product_name"), tr("label_product_state")])
         self.tbl_products.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         prod_layout.addWidget(self.tbl_products)
         prod_row = QHBoxLayout()
         self.ed_code = QLineEdit()
-        self.ed_code.setPlaceholderText("例如 SXZ218")
+        self.ed_code.setPlaceholderText(tr("placeholder_product_code"))
         self.ed_display = QLineEdit()
-        self.ed_display.setPlaceholderText("例如 放8")
-        self.btn_add_product = QPushButton("添加/更新")
-        self.btn_toggle_product = QPushButton("启用/禁用")
-        self.btn_delete_product = QPushButton("删除")
-        self.btn_refresh_products = QPushButton("刷新产品列表")
+        self.ed_display.setPlaceholderText(tr("placeholder_product_name"))
+        self.btn_add_product = QPushButton(tr("btn_add_or_update"))
+        self.btn_toggle_product = QPushButton(tr("btn_toggle"))
+        self.btn_delete_product = QPushButton(tr("btn_delete"))
+        self.btn_refresh_products = QPushButton(tr("btn_refresh_products"))
         self.btn_add_product.clicked.connect(self._add_or_update_product)
         self.btn_toggle_product.clicked.connect(self._toggle_product)
         self.btn_delete_product.clicked.connect(self._delete_product)
@@ -189,15 +189,15 @@ class Main6002(QMainWindow):
         prod_layout.addLayout(prod_row)
         layout.addWidget(box_products)
 
-        box_ops = QGroupBox("操作区")
+        box_ops = QGroupBox(tr("group_actions"))
         ops_layout = QHBoxLayout(box_ops)
-        self.btn_save_apply = QPushButton("保存并应用配置")
-        self.btn_selfcheck = QPushButton("立即自检")
-        self.btn_preview = QPushButton("扫描预览（不推送）")
-        self.btn_slot_14 = QPushButton("触发 14:00")
-        self.btn_slot_16 = QPushButton("触发 16:00")
-        self.btn_slot_1646 = QPushButton("触发 16:46（最终）")
-        self.btn_export_log = QPushButton("导出日志")
+        self.btn_save_apply = QPushButton(tr("btn_save_apply"))
+        self.btn_selfcheck = QPushButton(tr("btn_selfcheck"))
+        self.btn_preview = QPushButton(tr("btn_preview"))
+        self.btn_slot_14 = QPushButton(tr("btn_slot_14"))
+        self.btn_slot_16 = QPushButton(tr("btn_slot_16"))
+        self.btn_slot_1646 = QPushButton(tr("btn_slot_1646"))
+        self.btn_export_log = QPushButton(tr("btn_export_logs"))
         self.btn_save_apply.clicked.connect(self._save_and_apply)
         self.btn_selfcheck.clicked.connect(self._selfcheck)
         self.btn_preview.clicked.connect(self._preview_scan)
@@ -209,7 +209,7 @@ class Main6002(QMainWindow):
             ops_layout.addWidget(w)
         layout.addWidget(box_ops)
 
-        box_logs = QGroupBox("日志区")
+        box_logs = QGroupBox(tr("group_logs"))
         logs_layout = QVBoxLayout(box_logs)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -226,28 +226,28 @@ class Main6002(QMainWindow):
         self.tray.setToolTip(APP_TITLE)
 
         menu = QMenu(self)
-        act_show = QAction("打开主窗口", self)
+        act_show = QAction(tr("btn_open_window"), self)
         act_show.triggered.connect(self.showNormal)
         menu.addAction(act_show)
 
-        act_self = QAction("立即自检", self)
+        act_self = QAction(tr("btn_selfcheck"), self)
         act_self.triggered.connect(self._selfcheck)
         menu.addAction(act_self)
 
-        act_14 = QAction("触发 14:00", self)
+        act_14 = QAction(tr("btn_slot_14"), self)
         act_14.triggered.connect(lambda: self._run_slot("14:00", push=True))
         menu.addAction(act_14)
 
-        act_16 = QAction("触发 16:00", self)
+        act_16 = QAction(tr("btn_slot_16"), self)
         act_16.triggered.connect(lambda: self._run_slot("16:00", push=True))
         menu.addAction(act_16)
 
-        act_1646 = QAction("触发 16:46（最终）", self)
+        act_1646 = QAction(tr("btn_slot_1646"), self)
         act_1646.triggered.connect(lambda: self._run_slot("16:46", push=True))
         menu.addAction(act_1646)
 
         menu.addSeparator()
-        act_quit = QAction("退出程序", self)
+        act_quit = QAction(tr("btn_quit"), self)
         act_quit.triggered.connect(self._quit_app)
         menu.addAction(act_quit)
 
@@ -256,7 +256,7 @@ class Main6002(QMainWindow):
 
     def closeEvent(self, event):
         self.hide()
-        self._log("已最小化到托盘（程序仍在后台自动运行）")
+        self._log(tr("log_minimized"))
         event.ignore()
 
     def _log(self, msg: str):
@@ -277,11 +277,11 @@ class Main6002(QMainWindow):
         log_dir = Path(self.store.get_paths().log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         default_path = log_dir / f"desktop_6002_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        file_path, _ = QFileDialog.getSaveFileName(self, "导出日志", str(default_path), "Text Files (*.txt)")
+        file_path, _ = QFileDialog.getSaveFileName(self, tr("btn_export_logs"), str(default_path), "Text Files (*.txt)")
         if not file_path:
             return
         Path(file_path).write_text(self.log.toPlainText(), encoding="utf-8")
-        self._log(f"日志已导出：{file_path}")
+        self._log(f"{tr('log_exported')}：{file_path}")
 
     def _post_json(self, url: str, payload: dict, timeout: int = 120) -> dict:
         try:
@@ -303,7 +303,7 @@ class Main6002(QMainWindow):
         self.chk_push.setChecked(bool(self.cfg.get("push_enabled", True)))
         self.ed_webhook.setText(self.cfg.get("wecom_webhook_url", ""))
         self.ed_slots.setText(self.cfg.get("push_slots", "14:00,16:00,16:46"))
-        self.lb_last.setText(f"上次成功推送：{self.cfg.get('last_success_push', '--')}")
+        self.lb_last.setText(f"{tr('label_last_push')}：{self.cfg.get('last_success_push', '--')}")
 
     def _save_ui_to_cfg(self):
         cfg = self.store.load()
@@ -328,13 +328,13 @@ class Main6002(QMainWindow):
 
     def _refresh_status_labels(self):
         st = self.runner.status()
-        nav = "正常" if st.get("nav_report") == "UP" else "异常"
-        xlsx = "正常" if st.get("xlsx_merge") == "UP" else "异常"
-        self.lb_status.setText(f"运行状态：nav_report={nav} | xlsx_merge={xlsx}")
-        self.lb_next.setText(f"下一次任务：{self._calc_next_slot_text()}")
+        nav = tr("status_ok") if st.get("nav_report") == "UP" else tr("status_bad")
+        xlsx = tr("status_ok") if st.get("xlsx_merge") == "UP" else tr("status_bad")
+        self.lb_status.setText(f"{tr('label_status')}：nav_report={nav} | xlsx_merge={xlsx}")
+        self.lb_next.setText(f"{tr('label_next_slot')}：{self._calc_next_slot_text()}")
         target = self.runner.get_json(self.runner.nav_base_url + "/api/target_date")
-        self.lb_target.setText(f"今日目标估值日：{target.get('target_date', '--')}")
-        self.lb_last.setText(f"上次成功推送：{self.cfg.get('last_success_push', self._last_success_text)}")
+        self.lb_target.setText(f"{tr('label_target_date')}：{target.get('target_date', '--')}")
+        self.lb_last.setText(f"{tr('label_last_push')}：{self.cfg.get('last_success_push', self._last_success_text)}")
 
     def _calc_next_slot_text(self) -> str:
         slots = [x.strip() for x in (self.ed_slots.text().strip() or "14:00,16:00,16:46").split(",") if x.strip()]
@@ -359,11 +359,11 @@ class Main6002(QMainWindow):
             self._schedule_slots()
             self._log("配置已保存并生效（本地服务已重启）")
             if not startup:
-                QMessageBox.information(self, "提示", "配置已保存并生效。")
+                QMessageBox.information(self, tr("tip"), tr("log_saved"))
         except Exception as e:
             self._log(f"配置保存失败：{e}")
             if not startup:
-                QMessageBox.warning(self, "提示", f"配置保存失败：{e}")
+                QMessageBox.warning(self, tr("tip"), f"配置保存失败：{e}")
 
     def _selected_product(self) -> tuple[str, bool]:
         row = self.tbl_products.currentRow()
@@ -394,51 +394,51 @@ class Main6002(QMainWindow):
         code = self.ed_code.text().strip().upper()
         display = self.ed_display.text().strip() or code
         if not code:
-            QMessageBox.warning(self, "提示", "产品代码不能为空")
+            QMessageBox.warning(self, tr("tip"), tr("msg_need_product_code"))
             return
         data = self.runner.post_json(self.runner.nav_base_url + "/api/products/add", {"code": code, "display_name": display})
         if data.get("ok"):
-            self._log("产品操作成功 ✅")
+            self._log(tr("log_product_ok"))
             self._load_products()
         else:
-            self._log(f"产品操作失败 ❌ {data}")
+            self._log(f"{tr('log_product_fail')} {data}")
 
     def _toggle_product(self):
         code, enabled = self._selected_product()
         if not code:
-            QMessageBox.warning(self, "提示", "请先选择产品或输入产品代码")
+            QMessageBox.warning(self, tr("tip"), tr("msg_pick_product_or_code"))
             return
         data = self.runner.post_json(self.runner.nav_base_url + "/api/products/toggle", {"code": code, "enabled": not enabled})
         if data.get("ok"):
-            self._log("产品操作成功 ✅")
+            self._log(tr("log_product_ok"))
             self._load_products()
         else:
-            self._log(f"产品操作失败 ❌ {data}")
+            self._log(f"{tr('log_product_fail')} {data}")
 
     def _delete_product(self):
         code, _ = self._selected_product()
         if not code:
-            QMessageBox.warning(self, "提示", "请先选择产品或输入产品代码")
+            QMessageBox.warning(self, tr("tip"), tr("msg_pick_product_or_code"))
             return
         data = self.runner.post_json(self.runner.nav_base_url + "/api/products/delete", {"code": code})
         if data.get("ok"):
-            self._log("产品操作成功 ✅")
+            self._log(tr("log_product_ok"))
             self._load_products()
         else:
-            self._log(f"产品操作失败 ❌ {data}")
+            self._log(f"{tr('log_product_fail')} {data}")
 
     def _test_webhook(self):
         url = self.ed_webhook.text().strip()
         if not url:
-            QMessageBox.warning(self, "提示", "请先填写企业微信机器人地址")
+            QMessageBox.warning(self, tr("tip"), tr("msg_fill_webhook"))
             return
         ok, msg = self.runner.test_webhook(url)
         if ok:
             self._log("Webhook 测试成功")
-            QMessageBox.information(self, "提示", "Webhook 测试成功")
+            QMessageBox.information(self, tr("tip"), "Webhook 测试成功")
         else:
             self._log(f"Webhook 测试失败：{msg}")
-            QMessageBox.warning(self, "提示", f"Webhook 测试失败：{msg}")
+            QMessageBox.warning(self, tr("tip"), f"Webhook 测试失败：{msg}")
 
     def _boot_sequence(self):
         self._save_and_apply(startup=True)
@@ -447,22 +447,22 @@ class Main6002(QMainWindow):
     def _selfcheck(self):
         def worker():
             self._save_ui_to_cfg()
-            self._log("【自检】开始：检查本地服务与配置…")
+            self._log(tr("log_selfcheck_start"))
             health = self.runner.get_json(self.runner.nav_base_url + "/health")
             if not health.get("ok"):
-                self._log(f"【自检】失败 ❌ nav_report /health 不可用：{health}")
+                self._log(f"{tr('log_selfcheck_fail')} nav_report /health 不可用：{health}")
                 self._refresh_status_labels()
                 return
             products = self.runner.get_json(self.runner.nav_base_url + "/api/products")
             if not products.get("ok"):
-                self._log(f"【自检】失败 ❌ /api/products 读取失败：{products}")
+                self._log(f"{tr('log_selfcheck_fail')} /api/products 读取失败：{products}")
                 self._refresh_status_labels()
                 return
             resp = self.runner.call_nav_process_slot(slot="14:00", push=False, force=True)
             if not resp.get("ok"):
-                self._log(f"【自检】失败 ❌ 试跑失败：{resp}")
+                self._log(f"{tr('log_selfcheck_fail')} 试跑失败：{resp}")
             else:
-                self._log(f"【自检】完成 ✅（本次不推送） 目标日={resp.get('target_date', '--')}")
+                self._log(f"{tr('log_selfcheck_ok')} 目标日={resp.get('target_date', '--')}")
             self._refresh_status_labels()
             self._load_products()
 
@@ -471,27 +471,22 @@ class Main6002(QMainWindow):
     def _preview_scan(self):
         def worker():
             self._save_ui_to_cfg()
-            self._log("【预览】开始扫描（不推送）…")
-            payload = {
-                "force": True,
-                "strict": False,
-                "push": False,
-                "lookback_days": int(self.ed_lookback.text().strip() or "3"),
-                "target_val_date_only": True,
-            }
-            resp = self.runner.post_json(self.runner.nav_base_url + "/api/fetch_backfill", payload, timeout=180)
+            self._log(tr("log_preview_start"))
+            resp = self.runner.call_nav_preview(lookback_days=int(self.ed_lookback.text().strip() or "3"), target_val_date_only=True)
             if not resp.get("ok"):
                 self._log(f"【预览】失败：{resp}")
                 return
             buckets = resp.get("val_date_buckets", {})
             missing = resp.get("missing_codes", [])
             keys = resp.get("product_keys", [])
+            folders = resp.get("folders", [])
             self._log(
-                "【预览】命中邮件数={att} | 估值日分桶={buckets} | 命中产品={keys} | 缺失产品={missing}".format(
+                "【预览】命中邮件数={att} | 命中文件夹={folders} | 估值日分桶={buckets} | 命中产品={keys} | 缺失产品={missing}".format(
                     att=resp.get("attachments", 0),
+                    folders=",".join(folders) if folders else tr("preview_none"),
                     buckets=json.dumps(buckets, ensure_ascii=False),
-                    keys=",".join(keys) if keys else "无",
-                    missing=",".join(missing) if missing else "无",
+                    keys=",".join(keys) if keys else tr("preview_none"),
+                    missing=",".join(missing) if missing else tr("preview_none"),
                 )
             )
             self._refresh_status_labels()
@@ -524,7 +519,7 @@ class Main6002(QMainWindow):
             timer.timeout.connect(tick)
             timer.start(ms)
             self._timers.append(timer)
-            self._log(f"【定时】已设置 {slot}（下次触发：{target.strftime('%Y-%m-%d %H:%M:%S')}）")
+            self._log(f"{tr('log_sched_set')} {slot}（下次触发：{target.strftime('%Y-%m-%d %H:%M:%S')}）")
 
         for slot in slots:
             arm(slot)
@@ -534,7 +529,7 @@ class Main6002(QMainWindow):
         def worker():
             self._save_ui_to_cfg()
             prefix = "【自动运行】" if auto else "【手动运行】"
-            self._log(f"{prefix} 触发 {slot}：开始抓取/生成/推送…")
+            self._log(f"{prefix} {tr('log_autorun')} {slot}：开始抓取/生成/推送…")
             resp = self.runner.call_nav_process_slot(slot=slot, push=push, force=True)
             if not resp.get("ok"):
                 self._log(f"{prefix} {slot} 失败：{resp}")

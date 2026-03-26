@@ -1471,6 +1471,20 @@ def fetch_only(request: Request, payload: Optional[RunReq] = None, date_str: str
         if d:
             val_date_buckets[d] = val_date_buckets.get(d, 0) + 1
 
+    # CODEX_AUTO_REBUILD_LATE_VALDATE
+    # 抓到更早的晚到估值日时，自动补历史，但绝不触发推送。
+    late_rebuild = []
+    try:
+        late_dates = sorted([d for d in val_date_buckets.keys() if str(d) < str(today)])
+    except Exception:
+        late_dates = []
+    for late_d in late_dates:
+        try:
+            process_and_push(RunReq(date_str=str(late_d), force=True, push=False), date_str=str(late_d), force=True)
+            late_rebuild.append(str(late_d))
+        except Exception:
+            pass
+
     manifest_path, manifest_rows = _write_raw_manifest(today, out_dir, base_url=(str(request.base_url).rstrip("/") if request is not None else (PUBLIC_BASE_URL or "").strip().rstrip("/")))
 
     product_keys = sorted({x["product_key"] for x in rows})
@@ -1498,6 +1512,7 @@ def fetch_only(request: Request, payload: Optional[RunReq] = None, date_str: str
             "skipped_valdate_mismatch": skipped_valdate_mismatch,
             "skipped_buckets": skipped_buckets,
             "val_date_buckets": val_date_buckets,
+            "late_rebuild": late_rebuild,
             "product_keys": product_keys,
             "missing_codes": missing_codes,
             "out_manifest": manifest_path,
@@ -1608,6 +1623,8 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
 
     today = _pick_date(payload, date_str)
     force = _pick_force(payload, force)
+    # CODEX_EFFECTIVE_PUSH_GATE
+    requested_push = True if payload is None else bool(getattr(payload, "push", True))
     _raw_dir, out_dir = yyyymmdd_dir(DATA_DIR, today)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -1894,13 +1911,26 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             prev_nav = prev_nav_map.get(r.get("product_key"))
             nav = r.get("nav")
             diff = (nav - prev_nav) if (isinstance(nav, (int, float)) and isinstance(prev_nav, (int, float))) else None
+            day_pct = r.get("day_pct")
+            # CODEX_DAY_PCT_FALLBACK_FROM_PREV_NAV
+            if day_pct is None and isinstance(nav, (int, float)) and isinstance(prev_nav, (int, float)):
+                try:
+                    if float(prev_nav) != 0:
+                        day_pct = float(nav) / float(prev_nav) - 1.0
+                        # CODEX_DAY_PCT_WRITEBACK
+                        try:
+                            r["day_pct"] = day_pct
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             img1_rows.append(
                 [
                     short_product_name(r["product_key"], max_len=8),
                     fmt_num(nav, 4),
                     fmt_num(prev_nav, 4),
                     fmt_num(diff, 4),
-                    fmt_pct(r.get("day_pct")),
+                    fmt_pct(day_pct),
                     fmt_pct(r.get("week_pct")),
                     fmt_pct(r.get("month_pct")),
                     fmt_pct(r.get("ytd_pct")),
@@ -1925,7 +1955,7 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
         agent_id = os.getenv("WECOM_AGENT_ID", "").strip()
         secret = os.getenv("WECOM_APP_SECRET", "").strip()
         chatid = os.getenv("WECOM_CHAT_ID", "").strip()
-        push_allowed = not (payload is not None and getattr(payload, "push", True) is False)
+        push_allowed = requested_push
 
         pushed = False
         push_error = ""

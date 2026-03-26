@@ -97,35 +97,35 @@ class Main6000(QMainWindow):
         layout = QVBoxLayout(root)
 
         top = QHBoxLayout()
-        self.lb_status = QLabel("运行状态：未知")
-        self.lb_output = QLabel("输出目录：--")
+        self.lb_status = QLabel(f"{tr('label_status')}：{tr('status_unknown')}")
+        self.lb_output = QLabel(f"{tr('label_output_dir')}：--")
         top.addWidget(self.lb_status)
         top.addStretch(1)
         top.addWidget(self.lb_output)
         layout.addLayout(top)
 
-        box_cfg = QGroupBox("数据目录")
+        box_cfg = QGroupBox(tr("group_data_dir"))
         cfg_form = QFormLayout(box_cfg)
         row_dir = QHBoxLayout()
         self.ed_data_root = QLineEdit()
-        self.btn_pick_dir = QPushButton("选择数据目录")
-        self.btn_open_dir = QPushButton("打开输出目录")
+        self.btn_pick_dir = QPushButton(tr("btn_pick_dir"))
+        self.btn_open_dir = QPushButton(tr("btn_open_output_dir"))
         self.btn_pick_dir.clicked.connect(self._pick_dir)
         self.btn_open_dir.clicked.connect(self._open_output_dir)
         row_dir.addWidget(self.ed_data_root)
         row_dir.addWidget(self.btn_pick_dir)
         row_dir.addWidget(self.btn_open_dir)
-        cfg_form.addRow("数据根目录", row_dir)
+        cfg_form.addRow(tr("label_data_root"), row_dir)
         self.ed_target_amount = QLineEdit(str(self.cfg.get("merge_target_amount", 5000000)))
-        cfg_form.addRow("目标金额", self.ed_target_amount)
+        cfg_form.addRow(tr("label_target_amount"), self.ed_target_amount)
         layout.addWidget(box_cfg)
 
-        box_files = QGroupBox("文件选择")
+        box_files = QGroupBox(tr("group_file_picker"))
         files_layout = QVBoxLayout(box_files)
         row_btns = QHBoxLayout()
-        self.btn_select_files = QPushButton("选择文件")
-        self.btn_clear_files = QPushButton("清空文件列表")
-        self.btn_merge = QPushButton("开始合并")
+        self.btn_select_files = QPushButton(tr("btn_select_files"))
+        self.btn_clear_files = QPushButton(tr("btn_clear_files"))
+        self.btn_merge = QPushButton(tr("btn_start_merge"))
         self.btn_select_files.clicked.connect(self._select_files)
         self.btn_clear_files.clicked.connect(self._clear_files)
         self.btn_merge.clicked.connect(self._start_merge)
@@ -140,13 +140,14 @@ class Main6000(QMainWindow):
         files_layout.addWidget(self.tbl_files)
         layout.addWidget(box_files)
 
-        box_out = QGroupBox("输出文件")
+        box_out = QGroupBox(tr("group_outputs"))
         out_layout = QVBoxLayout(box_out)
         self.list_outputs = QListWidget()
+        self.list_outputs.itemDoubleClicked.connect(lambda item: open_path(item.text()))
         out_layout.addWidget(self.list_outputs)
         layout.addWidget(box_out)
 
-        box_log = QGroupBox("结果日志")
+        box_log = QGroupBox(tr("group_merge_logs"))
         log_layout = QVBoxLayout(box_log)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -180,9 +181,9 @@ class Main6000(QMainWindow):
 
     def _refresh_status(self):
         st = self.runner.status()
-        merge = "正常" if st.get("xlsx_merge") == "UP" else "异常"
-        self.lb_status.setText(f"运行状态：xlsx_merge={merge}")
-        self.lb_output.setText(f"输出目录：{self.store.get_paths().merge_out}")
+        merge = tr("status_ok") if st.get("xlsx_merge") == "UP" else tr("status_bad")
+        self.lb_status.setText(f"{tr('label_status')}：xlsx_merge={merge}")
+        self.lb_output.setText(f"{tr('label_output_dir')}：{self.store.get_paths().merge_out}")
 
     def _pick_dir(self):
         d = QFileDialog.getExistingDirectory(self, "选择数据根目录", self.ed_data_root.text().strip() or DEFAULT_DATA_DIR)
@@ -231,61 +232,29 @@ class Main6000(QMainWindow):
 
     def _start_merge(self):
         if not self.selected_files:
-            QMessageBox.warning(self, "提示", "请先选择至少一个 Excel 文件")
+            QMessageBox.warning(self, tr("tip"), tr("msg_pick_excel"))
             return
 
         def worker():
             self._save_cfg()
             self.runner.apply_config(self.cfg)
-            self.runner.start("xlsx_merge")
-            self._log("开始合并…")
-            files = []
-            handlers = []
-            try:
-                for fp in self.selected_files:
-                    fh = open(fp, "rb")
-                    handlers.append(fh)
-                    files.append(("files[]", (Path(fp).name, fh, "application/octet-stream")))
-                data = {
-                    "target_amount": str(self.cfg.get("merge_target_amount", 5000000)),
-                    "date_str": datetime.datetime.now().strftime("%Y%m%d"),
-                }
-                resp = requests.post(self.runner.xlsx_base_url + "/api/merge_job", files=files, data=data, timeout=120)
-                info = resp.json()
-                job_id = info.get("job_id")
-                if not job_id:
-                    self._log(f"启动合并失败：{info}")
-                    return
-                self._log(f"任务已启动：job_id={job_id}")
-                while True:
-                    time_resp = self.runner.get_json(self.runner.xlsx_base_url + f"/api/job/{job_id}")
-                    status = time_resp.get("status")
-                    if status == "done":
-                        date_str = time_resp.get("date") or datetime.datetime.now().strftime("%Y%m%d")
-                        out_dir = Path(self.store.get_paths().merge_out)
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        out_file = out_dir / f"持仓比例-{date_str}.xlsx"
-                        r = requests.get(self.runner.xlsx_base_url + f"/api/download_blob/{job_id}", timeout=120)
-                        r.raise_for_status()
-                        out_file.write_bytes(r.content)
-                        self._log(f"合并完成 ✅ 输出：{out_file}")
-                        self._refresh_outputs()
-                        self._refresh_status()
-                        return
-                    if status == "error":
-                        self._log(f"合并失败：{time_resp.get('error')}")
-                        return
-                    self._log(f"任务处理中：状态={status}")
-                    import time
-                    time.sleep(1)
-            except Exception as e:
-                self._log(f"合并失败：{e}")
-            finally:
-                for fh in handlers:
-                    try:
-                        fh.close()
-                    except Exception:
-                        pass
+            out_dir = Path(self.store.get_paths().merge_out)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            date_str = datetime.datetime.now().strftime("%Y%m%d")
+            out_file = out_dir / f"持仓比例-{date_str}.xlsx"
+            result = self.runner.run_merge_job(
+                file_paths=self.selected_files,
+                target_amount=float(self.cfg.get("merge_target_amount", 5000000)),
+                date_str=date_str,
+                output_path=str(out_file),
+                progress_cb=self._log,
+            )
+            if result.get("ok"):
+                self._log(f"{tr('log_merge_done')} 输出：{result.get('out_file')}")
+                self._refresh_outputs()
+                self._refresh_status()
+            else:
+                self._log(f"{tr('log_merge_fail')}：{result.get('error')}")
 
         threading.Thread(target=worker, daemon=True).start()
 

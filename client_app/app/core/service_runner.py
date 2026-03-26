@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import datetime
 import importlib.util
 import json
 import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import requests
 import uvicorn
@@ -214,6 +215,17 @@ class LocalServiceRunner:
         except Exception as e:
             return False, str(e)
 
+    def call_nav_preview(self, lookback_days: int = 3, target_val_date_only: bool = True) -> Dict[str, Any]:
+        self.start("nav_report")
+        payload = {
+            "force": True,
+            "strict": False,
+            "push": False,
+            "lookback_days": int(lookback_days),
+            "target_val_date_only": bool(target_val_date_only),
+        }
+        return self.post_json(self.nav_base_url + "/api/fetch_backfill", payload, timeout=180)
+
     def call_nav_fetch_probe(self, push: bool = False) -> Dict[str, Any]:
         self.start("nav_report")
         payload = {
@@ -231,6 +243,63 @@ class LocalServiceRunner:
         if date_str:
             payload["date_str"] = date_str
         return self.post_json(self.nav_base_url + "/api/process_slot", payload, timeout=300)
+
+    def run_merge_job(
+        self,
+        file_paths: list[str],
+        target_amount: float,
+        date_str: str = "",
+        output_path: str = "",
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        self.start("xlsx_merge")
+        handlers = []
+        try:
+            files = []
+            for fp in file_paths:
+                fh = open(fp, "rb")
+                handlers.append(fh)
+                files.append(("files[]", (Path(fp).name, fh, "application/octet-stream")))
+            payload = {
+                "target_amount": str(target_amount),
+                "date_str": date_str or datetime.datetime.now().strftime("%Y%m%d"),
+            }
+            if progress_cb:
+                progress_cb("任务提交中…")
+            resp = requests.post(self.xlsx_base_url + "/api/merge_job", files=files, data=payload, timeout=120)
+            resp.raise_for_status()
+            info = resp.json()
+            job_id = info.get("job_id")
+            if not job_id:
+                return {"ok": False, "error": f"missing job_id: {info}"}
+            if progress_cb:
+                progress_cb(f"任务已启动：job_id={job_id}")
+            while True:
+                status = self.get_json(self.xlsx_base_url + f"/api/job/{job_id}", timeout=30)
+                stage = status.get("status")
+                if stage == "done":
+                    break
+                if stage == "error":
+                    return {"ok": False, "error": status.get("error") or "merge failed", "job_id": job_id}
+                if progress_cb:
+                    progress_cb(f"任务处理中：状态={stage}")
+                time.sleep(1)
+            blob = requests.get(self.xlsx_base_url + f"/api/download_blob/{job_id}", timeout=120)
+            blob.raise_for_status()
+            out_file = Path(output_path) if output_path else (self._service_data_dir("xlsx_merge") / "out" / f"持仓比例-{payload['date_str']}.xlsx")
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_bytes(blob.content)
+            if progress_cb:
+                progress_cb(f"合并完成 ✅ 输出：{out_file}")
+            return {"ok": True, "job_id": job_id, "date": status.get("date") or payload["date_str"], "out_file": str(out_file)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            for fh in handlers:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
 
     def get_json(self, url: str, timeout: int = 20) -> Dict[str, Any]:
         try:
