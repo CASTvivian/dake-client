@@ -26,27 +26,46 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Debug paths
+      - name: Build 6002
         shell: pwsh
         run: |
-          Get-Location
-          dir
-          dir packaging
-          dir client_app
-          dir client_app/app
+          pyinstaller -y packaging/pyinstaller_6002.spec
 
-      - name: Build
+      - name: Build 6000
         shell: pwsh
         run: |
-          pyinstaller -y packaging/pyinstaller.spec --log-level=DEBUG
+          pyinstaller -y packaging/pyinstaller_6000.spec
 
-      - name: Zip artifact
+      - name: Assemble 6002 runtime
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/DakeClient/* -DestinationPath DakeClient-windows.zip -Force
+          New-Item -ItemType Directory -Force -Path dist_runtime_6002 | Out-Null
+          Copy-Item -Recurse -Force dist\DakeClient6002\* dist_runtime_6002\
+          New-Item -ItemType Directory -Force -Path dist_runtime_6002\data\6002 | Out-Null
+          New-Item -ItemType Directory -Force -Path dist_runtime_6002\config | Out-Null
+          Copy-Item client_app\config\config.example.json dist_runtime_6002\config\config.json -Force
+          Copy-Item packaging\README-windows.txt dist_runtime_6002\README.txt -Force
+          Compress-Archive -Path dist_runtime_6002\* -DestinationPath DakeClient6002-windows.zip -Force
 
-      - name: Upload artifact
+      - name: Assemble 6000 runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist_runtime_6000 | Out-Null
+          Copy-Item -Recurse -Force dist\DakeClient6000\* dist_runtime_6000\
+          New-Item -ItemType Directory -Force -Path dist_runtime_6000\data\6000 | Out-Null
+          New-Item -ItemType Directory -Force -Path dist_runtime_6000\config | Out-Null
+          Copy-Item client_app\config\config.example.json dist_runtime_6000\config\config.json -Force
+          Copy-Item packaging\README-windows.txt dist_runtime_6000\README.txt -Force
+          Compress-Archive -Path dist_runtime_6000\* -DestinationPath DakeClient6000-windows.zip -Force
+
+      - name: Upload 6002 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DakeClient-windows
-          path: DakeClient-windows.zip
+          name: DakeClient6002-windows
+          path: DakeClient6002-windows.zip
+
+      - name: Upload 6000 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DakeClient6000-windows
+          path: DakeClient6000-windows.zip
