@@ -174,10 +174,17 @@ class Main6000(QMainWindow):
         self.runner.update_data_root(self.store.get_data_root())
 
     def _boot_sequence(self):
-        self._save_cfg()
-        self.runner.apply_config(self.cfg)
-        self.runner.start("xlsx_merge")
-        self._refresh_status()
+        try:
+            self._save_cfg()
+            self.runner.apply_config(self.cfg)
+            self.runner.start("xlsx_merge")
+            self._refresh_status()
+        except FileNotFoundError as e:
+            self._log(f"内置合并服务文件缺失：{e}")
+            self._refresh_status()
+        except Exception as e:
+            self._log(f"启动本地合并服务失败：{e}")
+            self._refresh_status()
 
     def _refresh_status(self):
         st = self.runner.status()
@@ -190,8 +197,13 @@ class Main6000(QMainWindow):
         if d:
             self.ed_data_root.setText(d)
             self._save_cfg()
-            self.runner.apply_config(self.cfg)
-            self.runner.start("xlsx_merge")
+            try:
+                self.runner.apply_config(self.cfg)
+                self.runner.start("xlsx_merge")
+            except FileNotFoundError as e:
+                self._log(f"内置合并服务文件缺失：{e}")
+            except Exception as e:
+                self._log(f"启动本地合并服务失败：{e}")
             self._refresh_status()
             self._refresh_outputs()
 
@@ -236,25 +248,30 @@ class Main6000(QMainWindow):
             return
 
         def worker():
-            self._save_cfg()
-            self.runner.apply_config(self.cfg)
-            out_dir = Path(self.store.get_paths().merge_out)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            date_str = datetime.datetime.now().strftime("%Y%m%d")
-            out_file = out_dir / f"持仓比例-{date_str}.xlsx"
-            result = self.runner.run_merge_job(
-                file_paths=self.selected_files,
-                target_amount=float(self.cfg.get("merge_target_amount", 5000000)),
-                date_str=date_str,
-                output_path=str(out_file),
-                progress_cb=self._log,
-            )
-            if result.get("ok"):
-                self._log(f"{tr('log_merge_done')} 输出：{result.get('out_file')}")
-                self._refresh_outputs()
-                self._refresh_status()
-            else:
-                self._log(f"{tr('log_merge_fail')}：{result.get('error')}")
+            try:
+                self._save_cfg()
+                self.runner.apply_config(self.cfg)
+                out_dir = Path(self.store.get_paths().merge_out)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                date_str = datetime.datetime.now().strftime("%Y%m%d")
+                out_file = out_dir / f"持仓比例-{date_str}.xlsx"
+                result = self.runner.run_merge_job(
+                    file_paths=self.selected_files,
+                    target_amount=float(self.cfg.get("merge_target_amount", 5000000)),
+                    date_str=date_str,
+                    output_path=str(out_file),
+                    progress_cb=self._log,
+                )
+                if result.get("ok"):
+                    self._log(f"{tr('log_merge_done')} 输出：{result.get('out_file')}")
+                    self._refresh_outputs()
+                    self._refresh_status()
+                else:
+                    self._log(f"{tr('log_merge_fail')}：{result.get('error')}")
+            except FileNotFoundError as e:
+                self._log(f"内置合并服务文件缺失：{e}")
+            except Exception as e:
+                self._log(f"{tr('log_merge_fail')}：{e}")
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -9,6 +9,10 @@ entry = project_root / "client_app" / "app" / "main_6002.py"
 block_cipher = None
 
 hiddenimports = [
+    "uvicorn.logging",
+    "uvicorn.config",
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "dotenv",
     "openpyxl",
@@ -25,6 +29,8 @@ hiddenimports = [
 ]
 
 packages = [
+    "pyzmail",
+    "pyzmail36",
     "requests",
     "imapclient",
     "openpyxl",
@@ -53,8 +59,10 @@ a = Analysis(
     pathex=[str(project_root)],
     binaries=binaries,
     datas=datas + [
+        (str(project_root / "client_app" / "app" / "services" / "nav_report"), "client_app/app/services/nav_report"),
+        (str(project_root / "client_app" / "app" / "services" / "xlsx_merge"), "client_app/app/services/xlsx_merge"),
         (str(project_root / "client_app" / "assets"), "client_app/assets"),
-        (str(project_root / "client_app" / "config" / "config.example.json"), "client_app/config"),
+        (str(project_root / "client_app" / "config"), "client_app/config"),
     ],
     hiddenimports=hiddenimports + hidden,
     hookspath=[],

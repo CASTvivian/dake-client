@@ -1,8 +1,10 @@
+# CODEX_DISABLE_UVICORN_DEFAULT_LOGGING
 # -*- coding: utf-8 -*-
 import datetime
 import importlib.util
 import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -10,6 +12,14 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import requests
 import uvicorn
+
+
+def resource_path(*parts: str) -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).resolve().parents[3]
+    return base.joinpath(*parts)
 
 
 def _load_fastapi_app_from_file(py_file: Path, attr: str = "app", module_name: str | None = None):
@@ -26,7 +36,7 @@ def _load_fastapi_app_from_file(py_file: Path, attr: str = "app", module_name: s
 
 
 class _UvicornThread:
-    def __init__(self, app, host: str, port: int, log_level: str = "info"):
+    def __init__(self, app, host: str, port: int, log_level: str = "warning"):
         self.app = app
         self.host = host
         self.port = port
@@ -37,7 +47,14 @@ class _UvicornThread:
     def start(self):
         if self.thread and self.thread.is_alive():
             return
-        cfg = uvicorn.Config(self.app, host=self.host, port=self.port, log_level=self.log_level)
+        cfg = uvicorn.Config(
+            self.app,
+            host=self.host,
+            port=self.port,
+            log_level=self.log_level,
+            log_config=None,
+            access_log=False,
+        )
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()
@@ -57,7 +74,7 @@ class LocalServiceRunner:
         self.xlsx_port = 16000
         self._nav: Optional[_UvicornThread] = None
         self._xlsx: Optional[_UvicornThread] = None
-        self._svc_root = Path(__file__).resolve().parents[1] / "services"
+        self._svc_root = resource_path("client_app", "app", "services")
         self.services = {
             "nav_report": self._svc_root / "nav_report",
             "xlsx_merge": self._svc_root / "xlsx_merge",
@@ -88,7 +105,13 @@ class LocalServiceRunner:
         svc_root = self.services[name]
         p1 = svc_root / "app" / "main.py"
         p2 = svc_root / "main.py"
-        return p1 if p1.exists() else p2
+        if p1.exists():
+            return p1
+        if p2.exists():
+            return p2
+        raise FileNotFoundError(
+            f"未找到内置服务入口文件：{name}。已检查：{p1} 和 {p2}。请确认打包时包含了 client_app/app/services/{name} 目录。"
+        )
 
     def _service_thread(self, name: str) -> Optional[_UvicornThread]:
         return self._nav if name == "nav_report" else self._xlsx
@@ -175,7 +198,8 @@ class LocalServiceRunner:
         current = self._service_thread(name)
         if current and self._is_up(self._health_url(name)):
             return
-        app = _load_fastapi_app_from_file(self._service_main_file(name), "app", module_name=f"{name}_{int(time.time()*1000)}")
+        main_file = self._service_main_file(name)
+        app = _load_fastapi_app_from_file(main_file, "app", module_name=f"{name}_{int(time.time()*1000)}")
         port = self.nav_port if name == "nav_report" else self.xlsx_port
         thr = _UvicornThread(app, "127.0.0.1", port, log_level="info")
         self._set_service_thread(name, thr)
