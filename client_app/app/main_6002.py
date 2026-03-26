@@ -72,6 +72,17 @@ class Main6002(QMainWindow):
         root = QWidget()
         layout = QVBoxLayout(root)
 
+        top = QHBoxLayout()
+        self.lb_status = QLabel(tr("状态：nav_report=未知 | xlsx_merge=未知"))
+        self.lb_target = QLabel(tr("今日目标估值日：由服务自动计算"))
+        self.lb_next = QLabel(tr("下一次任务：--"))
+        top.addWidget(self.lb_status)
+        top.addStretch(1)
+        top.addWidget(self.lb_target)
+        top.addStretch(1)
+        top.addWidget(self.lb_next)
+        layout.addLayout(top)
+
         # 数据目录
         row = QHBoxLayout()
         row.addWidget(QLabel(tr("数据根目录")))
@@ -135,8 +146,6 @@ class Main6002(QMainWindow):
 
         # 服务状态 + 手工触发
         layout.addWidget(QLabel(tr("服务控制（后台运行，不开网页）")))
-        self.lb_status = QLabel(tr("状态：nav_report=未知 | xlsx_merge=未知"))
-        layout.addWidget(self.lb_status)
 
         row4 = QHBoxLayout()
         btn_apply = QPushButton(tr("应用配置（热加载）"))
@@ -211,7 +220,7 @@ class Main6002(QMainWindow):
 
         menu.addSeparator()
         act_exit = QAction(tr("退出"), self)
-        act_exit.triggered.connect(lambda: QApplication.quit())
+        act_exit.triggered.connect(self._quit_app)
         menu.addAction(act_exit)
 
         self.tray.setContextMenu(menu)
@@ -229,9 +238,32 @@ class Main6002(QMainWindow):
         self.scheduler.start()
         self.tray.showMessage(tr("大可客户端"), tr("后台调度已启动：14:00 / 16:00 / 16:46"), QSystemTrayIcon.Information, 2500)
 
+    def _log(self, msg: str):
+        stamp = datetime.datetime.now().strftime("%H:%M:%S")
+        print(f"[{stamp}] {msg}")
+
+    def _quit_app(self):
+        self.runner.stop_all()
+        QApplication.quit()
+
+    def _calc_next_slot_text(self) -> str:
+        slots = ["14:00", "16:00", "16:46"]
+        now = datetime.datetime.now()
+        cands = []
+        for slot in slots:
+            hh, mm = map(int, slot.split(":"))
+            target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if target <= now:
+                target += datetime.timedelta(days=1)
+            cands.append((target, slot))
+        cands.sort(key=lambda x: x[0])
+        return cands[0][1] if cands else "--"
+
     def _refresh_status(self):
         st = self.runner.status()
         self.lb_status.setText(tr(f"状态：nav_report={st.get('nav_report','?')} | xlsx_merge={st.get('xlsx_merge','?')}"))
+        self.lb_target.setText(tr("今日目标估值日：由服务自动计算"))
+        self.lb_next.setText(tr(f"下一次任务：{self._calc_next_slot_text()}"))
 
     def _apply_cfg(self, silent=False):
         cfg = {
@@ -305,17 +337,22 @@ class Main6002(QMainWindow):
         self._apply_cfg(silent=True)
         ok, report = run_selfcheck_once(self.runner, self.store)
         if ok:
+            self._log("自检完成 ✅（本次不推送）")
             self.tray.showMessage(tr("大可客户端"), tr("自检通过：已完成试抓（不推送）"), QSystemTrayIcon.Information, 2500)
         else:
+            self._log(f"自检失败 ❌ {report}")
             self.tray.showMessage(tr("大可客户端"), tr("自检失败：请打开窗口查看配置"), QSystemTrayIcon.Warning, 2500)
             QMessageBox.warning(self, tr("提示"), report)
 
     def _run_slot(self, slot):
         self._apply_cfg(silent=True)
+        self._log(f"触发 {slot}：开始抓取/生成/推送…")
         ok, msg = self.scheduler.run_slot_now(slot, push=True)
         if ok:
+            self._log(f"{slot} 执行完成 ✅")
             self.tray.showMessage(tr("大可客户端"), tr(f"已执行 {slot} 推送。"), QSystemTrayIcon.Information, 2500)
         else:
+            self._log(f"{slot} 执行失败：{msg}")
             QMessageBox.warning(self, tr("提示"), msg)
 
 def main():

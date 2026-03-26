@@ -25,7 +25,7 @@ _bootstrap_qt_plugin_path()
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QVBoxLayout
 
-APP_NAME = "大可工具（6000 合表）"
+APP_NAME = "大可客户端（6000 合并工具）"
 
 def resource_path(rel: str) -> str:
     base = Path(getattr(sys, "_MEIPASS", REPO_ROOT))
