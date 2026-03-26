@@ -25,7 +25,7 @@ def _load_client_cfg():
 def _apply_client_cfg(cfg: dict):
     data_root = (cfg or {}).get("data_root", "") if cfg else ""
     if data_root:
-        os.environ["DATA_DIR"] = os.path.join(data_root, "xlsx_merge")
+        os.environ["DATA_DIR"] = os.path.join(data_root, "6000", "xlsx_merge")
 @app.post("/api/reload_config")
 def reload_config():
     cfg = _load_client_cfg()

@@ -169,6 +169,8 @@ class ToggleReq(BaseModel):
 class SlotReq(BaseModel):
     slot: str = ""
     force: bool = True
+    push: bool = True
+    date_str: str = ""
 
 
 def _pick_date(payload: Optional[RunReq], date_str: str) -> str:
@@ -1043,32 +1045,53 @@ def _load_client_cfg():
     except Exception:
         return None
 def _apply_client_cfg(cfg: dict):
-    imap = (cfg or {}).get("imap", {}) if cfg else {}
-    wecom = (cfg or {}).get("wecom", {}) if cfg else {}
-    slots = (cfg or {}).get("push_slots", []) if cfg else []
-    products = (cfg or {}).get("products", []) if cfg else []
-    data_root = (cfg or {}).get("data_root", "") if cfg else ""
+    cfg = cfg or {}
+    imap = cfg.get("imap", {}) if isinstance(cfg.get("imap"), dict) else {}
+    wecom = cfg.get("wecom", {}) if isinstance(cfg.get("wecom"), dict) else {}
+    slots = cfg.get("push_slots", []) or []
+    products = cfg.get("products", []) or []
+    data_root = cfg.get("data_root", "") or ""
     if data_root:
-        os.environ["DATA_DIR"] = os.path.join(data_root, "nav_report")
-    if imap.get("host"):
-        os.environ["IMAP_HOST"] = str(imap.get("host"))
-    if imap.get("user"):
-        os.environ["IMAP_USER"] = str(imap.get("user"))
-    if imap.get("pass"):
-        os.environ["IMAP_PASS"] = str(imap.get("pass"))
-    if imap.get("lookback_days") is not None:
-        os.environ["MAIL_LOOKBACK_DAYS"] = str(imap.get("lookback_days"))
-    if imap.get("folder_mode"):
-        os.environ["IMAP_FOLDERS_MODE"] = str(imap.get("folder_mode"))
-    if imap.get("folders"):
-        os.environ["IMAP_FOLDERS"] = ",".join(imap.get("folders"))
-    if imap.get("blacklist_keywords"):
-        os.environ["IMAP_FOLDERS_BLACKLIST"] = ",".join(imap.get("blacklist_keywords"))
-    if wecom.get("webhook_url"):
-        os.environ["WECOM_WEBHOOK_URL"] = str(wecom.get("webhook_url"))
-    os.environ["WECOM_PUSH_ENABLED"] = "1" if bool(wecom.get("push_enabled", True)) else "0"
+        os.environ["DATA_DIR"] = os.path.join(data_root, "6002", "nav_report")
+    os.environ["IMAP_HOST"] = str(imap.get("host") or cfg.get("imap_host") or os.environ.get("IMAP_HOST", ""))
+    os.environ["IMAP_USER"] = str(imap.get("user") or cfg.get("imap_user") or os.environ.get("IMAP_USER", ""))
+    os.environ["IMAP_PASS"] = str(imap.get("pass") or cfg.get("imap_pass") or os.environ.get("IMAP_PASS", ""))
+    lookback = imap.get("lookback_days")
+    if lookback is None:
+        lookback = cfg.get("mail_lookback_days") or cfg.get("lookback_days")
+    if lookback is not None:
+        os.environ["MAIL_LOOKBACK_DAYS"] = str(lookback)
+    folder_mode = imap.get("folder_mode") or cfg.get("imap_folders_mode") or cfg.get("folder_mode")
+    if folder_mode:
+        os.environ["IMAP_FOLDERS_MODE"] = str(folder_mode)
+    folders = imap.get("folders")
+    if not folders:
+        folders = cfg.get("imap_folders") or cfg.get("folders")
+    if folders:
+        if isinstance(folders, str):
+            os.environ["IMAP_FOLDERS"] = folders
+        else:
+            os.environ["IMAP_FOLDERS"] = ",".join(folders)
+    blacklist = imap.get("blacklist_keywords")
+    if not blacklist:
+        blacklist = cfg.get("imap_folders_blacklist") or cfg.get("folders_blacklist")
+    if blacklist:
+        if isinstance(blacklist, str):
+            os.environ["IMAP_FOLDERS_BLACKLIST"] = blacklist
+        else:
+            os.environ["IMAP_FOLDERS_BLACKLIST"] = ",".join(blacklist)
+    webhook = wecom.get("webhook_url") or cfg.get("wecom_webhook_url")
+    if webhook:
+        os.environ["WECOM_WEBHOOK_URL"] = str(webhook)
+    push_enabled = wecom.get("push_enabled")
+    if push_enabled is None:
+        push_enabled = cfg.get("push_enabled", True)
+    os.environ["WECOM_PUSH_ENABLED"] = "1" if bool(push_enabled) else "0"
     if slots:
-        os.environ["PUSH_SLOTS"] = ",".join(slots)
+        if isinstance(slots, str):
+            os.environ["PUSH_SLOTS"] = slots
+        else:
+            os.environ["PUSH_SLOTS"] = ",".join(slots)
     os.environ["CLIENT_PRODUCTS_JSON"] = json.dumps(products, ensure_ascii=False)
 @app.post("/api/reload_config")
 def reload_config():
@@ -1450,6 +1473,16 @@ def fetch_only(request: Request, payload: Optional[RunReq] = None, date_str: str
 
     manifest_path, manifest_rows = _write_raw_manifest(today, out_dir, base_url=(str(request.base_url).rstrip("/") if request is not None else (PUBLIC_BASE_URL or "").strip().rstrip("/")))
 
+    product_keys = sorted({x["product_key"] for x in rows})
+    seen_codes = sorted({_extract_code(x["product_key"]) or x["product_key"] for x in rows})
+    enabled_codes = []
+    try:
+        with connect(DATA_DIR) as conn_allow:
+            enabled_codes = _get_enabled_codes(conn_allow)
+    except Exception:
+        enabled_codes = []
+    missing_codes = [c for c in enabled_codes if c not in seen_codes]
+
     return JSONResponse(
         {
             "ok": True,
@@ -1460,10 +1493,13 @@ def fetch_only(request: Request, payload: Optional[RunReq] = None, date_str: str
             "replaced": replaced,
             "products": len({x["product_key"] for x in rows}),
             "received_day": today,
+            "folders": folders,
             "target_val_date_only": target_val_date_only,
             "skipped_valdate_mismatch": skipped_valdate_mismatch,
             "skipped_buckets": skipped_buckets,
             "val_date_buckets": val_date_buckets,
+            "product_keys": product_keys,
+            "missing_codes": missing_codes,
             "out_manifest": manifest_path,
         }
     )
@@ -2354,9 +2390,15 @@ def api_process_prev_trading(payload: Optional[RunReq] = None):
         res["gap_filled"] = filled
     return res
 
+
+@app.get("/api/target_date")
+def api_target_date():
+    D = _prev_trading_day_ymd(datetime.date.today())
+    return {"ok": True, "target_date": D}
+
 @app.post("/api/process_slot")
 def process_slot(req: SlotReq):
-    target = _prev_trading_day_ymd(datetime.date.today())
+    target = req.date_str.strip() if len((req.date_str or "").strip()) == 8 else _prev_trading_day_ymd(datetime.date.today())
 
     payload = RunReq(date_str=target, force=req.force, push=False, slot=req.slot or "")
     payload.lookback_days = _env_int("MAIL_LOOKBACK_DAYS", 3)
@@ -2371,7 +2413,7 @@ def process_slot(req: SlotReq):
         except Exception:
             pass
 
-    payload2 = RunReq(date_str=target, force=True, push=True, slot=req.slot or "")
+    payload2 = RunReq(date_str=target, force=True, push=req.push, slot=req.slot or "")
     res = process_and_push(payload2, date_str=target, force=True)
     if isinstance(res, dict):
         res["slot"] = req.slot or ""
