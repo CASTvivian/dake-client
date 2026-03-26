@@ -9,6 +9,8 @@ entry = project_root / "client_app" / "app" / "main_6002.py"
 block_cipher = None
 
 hiddenimports = [
+    "uvicorn.logging",
+    "uvicorn.config",
     "pyzmail",
     "pyzmail36",
     "requests",

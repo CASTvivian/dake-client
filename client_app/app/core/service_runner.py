@@ -1,3 +1,4 @@
+# CODEX_DISABLE_UVICORN_DEFAULT_LOGGING
 # -*- coding: utf-8 -*-
 import datetime
 import importlib.util
@@ -35,7 +36,7 @@ def _load_fastapi_app_from_file(py_file: Path, attr: str = "app", module_name: s
 
 
 class _UvicornThread:
-    def __init__(self, app, host: str, port: int, log_level: str = "info"):
+    def __init__(self, app, host: str, port: int, log_level: str = "warning"):
         self.app = app
         self.host = host
         self.port = port
@@ -46,7 +47,14 @@ class _UvicornThread:
     def start(self):
         if self.thread and self.thread.is_alive():
             return
-        cfg = uvicorn.Config(self.app, host=self.host, port=self.port, log_level=self.log_level)
+        cfg = uvicorn.Config(
+            self.app,
+            host=self.host,
+            port=self.port,
+            log_level=self.log_level,
+            log_config=None,
+            access_log=False,
+        )
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()
