@@ -1,3 +1,35 @@
 # -*- coding: utf-8 -*-
-def tr(s: str) -> str:
-    return s
+def tr(key: str) -> str:
+    table = {
+        "app_6002_title": "大可客户端 - 6002（估值自动化）",
+        "app_6000_title": "大可客户端 - 6000（合并工具）",
+        "btn_save": "保存配置",
+        "btn_selfcheck": "立即自检",
+        "btn_start": "启动",
+        "btn_stop": "停止",
+        "btn_refresh": "刷新",
+        "btn_add_product": "添加产品",
+        "btn_del_product": "删除产品",
+        "btn_toggle_product": "启用/禁用",
+        "label_code": "产品代码",
+        "label_display": "中文简称",
+        "label_enabled": "状态",
+        "label_data_root": "数据根目录",
+        "label_imap_host": "邮箱 IMAP 地址",
+        "label_imap_user": "邮箱账号",
+        "label_imap_pass": "邮箱授权码/密码",
+        "label_imap_folders": "扫描文件夹（逗号分隔，留空=自动扫描）",
+        "label_webhook": "企业微信机器人 Webhook URL",
+        "label_slots": "推送时段（14:00,16:00,16:46）",
+        "log_selfcheck_start": "【自检】开始：检查本地服务与配置…",
+        "log_selfcheck_ok": "【自检】完成 ✅（本次自检不推送）",
+        "log_selfcheck_fail": "【自检】失败 ❌",
+        "log_saved": "【配置】已保存并生效（本地服务已重启）。",
+        "log_minimized": "【提示】已最小化到托盘（程序仍在后台自动运行）。",
+        "log_sched_set": "【定时】已设置",
+        "log_autorun": "【自动运行】触发",
+        "log_product_ok": "【产品】操作成功 ✅",
+        "log_product_fail": "【产品】操作失败 ❌",
+        "missing_day": "数据缺失",
+    }
+    return table.get(key, key)

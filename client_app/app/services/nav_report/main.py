@@ -1844,20 +1844,33 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
             _log_fetch("MANIFEST_REWRITE_FAIL", date=today, err=str(e))
 
         title1 = f"净值日报 {dt.year}/{dt.month:02d}/{dt.day:02d}"
-        headers1 = ["产品名称", nav_col, "今年来", "当日", "当周", "当月"]
+        headers1 = ["产品名称", nav_col, "昨日净值", "净值变动", "当日涨幅", "当周涨幅", "当月涨幅", "今年来收益"]
+        prev_nav_map = {}
+        with connect(DATA_DIR) as conn_png:
+            for r in rows:
+                pk = r.get("product_key")
+                ymd = r.get("val_date") or today
+                prev_date = _get_prev_date_from_series(conn_png, pk, ymd)
+                prev_nav_map[pk] = _get_unit_nav(conn_png, pk, prev_date) if prev_date else None
+
         img1_rows = []
         for r in rows:
+            prev_nav = prev_nav_map.get(r.get("product_key"))
+            nav = r.get("nav")
+            diff = (nav - prev_nav) if (isinstance(nav, (int, float)) and isinstance(prev_nav, (int, float))) else None
             img1_rows.append(
                 [
                     short_product_name(r["product_key"], max_len=8),
-                    fmt_num(r.get("nav"), 4),
-                    fmt_pct(r.get("ytd_pct")),
+                    fmt_num(nav, 4),
+                    fmt_num(prev_nav, 4),
+                    fmt_num(diff, 4),
                     fmt_pct(r.get("day_pct")),
                     fmt_pct(r.get("week_pct")),
                     fmt_pct(r.get("month_pct")),
+                    fmt_pct(r.get("ytd_pct")),
                 ]
             )
-        render_table_image(out_img_today, title1, headers1, img1_rows, highlight_cols=[2, 3, 4, 5])
+        render_table_image(out_img_today, title1, headers1, img1_rows, highlight_cols=[3, 4, 5, 6, 7])
 
         # disabled: no 昨日对比 image
 
