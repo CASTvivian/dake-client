@@ -360,6 +360,11 @@ class Main6002(QMainWindow):
             self._log("配置已保存并生效（本地服务已重启）")
             if not startup:
                 QMessageBox.information(self, tr("tip"), tr("log_saved"))
+        except FileNotFoundError as e:
+            self._log(f"内置服务文件缺失：{e}")
+            self._refresh_status_labels()
+            if not startup:
+                QMessageBox.warning(self, tr("tip"), f"内置服务文件缺失：{e}")
         except Exception as e:
             self._log(f"配置保存失败：{e}")
             if not startup:
@@ -470,26 +475,31 @@ class Main6002(QMainWindow):
 
     def _preview_scan(self):
         def worker():
-            self._save_ui_to_cfg()
-            self._log(tr("log_preview_start"))
-            resp = self.runner.call_nav_preview(lookback_days=int(self.ed_lookback.text().strip() or "3"), target_val_date_only=True)
-            if not resp.get("ok"):
-                self._log(f"【预览】失败：{resp}")
-                return
-            buckets = resp.get("val_date_buckets", {})
-            missing = resp.get("missing_codes", [])
-            keys = resp.get("product_keys", [])
-            folders = resp.get("folders", [])
-            self._log(
-                "【预览】命中邮件数={att} | 命中文件夹={folders} | 估值日分桶={buckets} | 命中产品={keys} | 缺失产品={missing}".format(
-                    att=resp.get("attachments", 0),
-                    folders=",".join(folders) if folders else tr("preview_none"),
-                    buckets=json.dumps(buckets, ensure_ascii=False),
-                    keys=",".join(keys) if keys else tr("preview_none"),
-                    missing=",".join(missing) if missing else tr("preview_none"),
+            try:
+                self._save_ui_to_cfg()
+                self._log(tr("log_preview_start"))
+                resp = self.runner.call_nav_preview(lookback_days=int(self.ed_lookback.text().strip() or "3"), target_val_date_only=True)
+                if not resp.get("ok"):
+                    self._log(f"【预览】失败：{resp}")
+                    return
+                buckets = resp.get("val_date_buckets", {})
+                missing = resp.get("missing_codes", [])
+                keys = resp.get("product_keys", [])
+                folders = resp.get("folders", [])
+                self._log(
+                    "【预览】命中邮件数={att} | 命中文件夹={folders} | 估值日分桶={buckets} | 命中产品={keys} | 缺失产品={missing}".format(
+                        att=resp.get("attachments", 0),
+                        folders=",".join(folders) if folders else tr("preview_none"),
+                        buckets=json.dumps(buckets, ensure_ascii=False),
+                        keys=",".join(keys) if keys else tr("preview_none"),
+                        missing=",".join(missing) if missing else tr("preview_none"),
+                    )
                 )
-            )
-            self._refresh_status_labels()
+                self._refresh_status_labels()
+            except FileNotFoundError as e:
+                self._log(f"内置服务文件缺失：{e}")
+            except Exception as e:
+                self._log(f"【预览】失败：{e}")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -527,23 +537,30 @@ class Main6002(QMainWindow):
 
     def _run_slot(self, slot: str, push: bool = True, auto: bool = False):
         def worker():
-            self._save_ui_to_cfg()
-            prefix = "【自动运行】" if auto else "【手动运行】"
-            self._log(f"{prefix} {tr('log_autorun')} {slot}：开始抓取/生成/推送…")
-            resp = self.runner.call_nav_process_slot(slot=slot, push=push, force=True)
-            if not resp.get("ok"):
-                self._log(f"{prefix} {slot} 失败：{resp}")
-                return
-            if resp.get("pushed"):
-                target_date = resp.get("target_date") or resp.get("date") or "--"
-                stamp = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} / {target_date}"
-                cfg = self.store.load()
-                cfg["last_success_push"] = stamp
-                self.store.save(cfg)
-                self.cfg = self.store.load()
-                self._last_success_text = stamp
-            self._log(f"{prefix} {slot} 完成 ✅ {json.dumps(resp, ensure_ascii=False)[:500]}")
-            self._refresh_status_labels()
+            try:
+                self._save_ui_to_cfg()
+                prefix = "【自动运行】" if auto else "【手动运行】"
+                self._log(f"{prefix} {tr('log_autorun')} {slot}：开始抓取/生成/推送…")
+                resp = self.runner.call_nav_process_slot(slot=slot, push=push, force=True)
+                if not resp.get("ok"):
+                    self._log(f"{prefix} {slot} 失败：{resp}")
+                    return
+                if resp.get("pushed"):
+                    target_date = resp.get("target_date") or resp.get("date") or "--"
+                    stamp = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} / {target_date}"
+                    cfg = self.store.load()
+                    cfg["last_success_push"] = stamp
+                    self.store.save(cfg)
+                    self.cfg = self.store.load()
+                    self._last_success_text = stamp
+                self._log(f"{prefix} {slot} 完成 ✅ {json.dumps(resp, ensure_ascii=False)[:500]}")
+                self._refresh_status_labels()
+            except FileNotFoundError as e:
+                self._log(f"内置服务文件缺失：{e}")
+                self._refresh_status_labels()
+            except Exception as e:
+                self._log(f"{slot} 执行失败：{e}")
+                self._refresh_status_labels()
 
         threading.Thread(target=worker, daemon=True).start()
 
