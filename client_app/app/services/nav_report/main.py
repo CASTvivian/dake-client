@@ -1917,6 +1917,11 @@ def process_and_push(payload: Optional[RunReq] = None, date_str: str = "", force
                 try:
                     if float(prev_nav) != 0:
                         day_pct = float(nav) / float(prev_nav) - 1.0
+                        # CODEX_DAY_PCT_WRITEBACK
+                        try:
+                            r["day_pct"] = day_pct
+                        except Exception:
+                            pass
                 except Exception:
                     pass
             img1_rows.append(
