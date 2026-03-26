@@ -1,26 +1,28 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
-import time
-import json
-import threading
 import importlib.util
+import json
+import os
+import threading
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 import uvicorn
 
-def _load_fastapi_app_from_file(py_file: Path, attr: str = "app"):
-    spec = importlib.util.spec_from_file_location(py_file.stem, str(py_file))
+
+def _load_fastapi_app_from_file(py_file: Path, attr: str = "app", module_name: str | None = None):
+    name = module_name or f"{py_file.stem}_{int(time.time() * 1000)}"
+    spec = importlib.util.spec_from_file_location(name, str(py_file))
     if not spec or not spec.loader:
         raise RuntimeError(f"无法加载模块: {py_file}")
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore
+    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
     app = getattr(mod, attr, None)
     if app is None:
         raise RuntimeError(f"模块缺少 {attr}: {py_file}")
     return app
+
 
 class _UvicornThread:
     def __init__(self, app, host: str, port: int, log_level: str = "info"):
@@ -42,154 +44,167 @@ class _UvicornThread:
     def stop(self):
         if self.server:
             self.server.should_exit = True
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=5)
+
 
 class LocalServiceRunner:
-    """
-    桌面端：本地起 2 个 FastAPI 服务（nav_report/xlsx_merge）
-    并提供：
-    - apply_config: 写入本地 nav_report 的 .env（供服务读取）
-    - call_nav_fetch_probe: 启动自检试抓（不推送）
-    - call_nav_process_slot: 触发 14:00/16:00/16:46
-    """
     def __init__(self, data_dir: str, app_id: str = "6002"):
-        self.data_dir = Path(data_dir)
+        self.data_root = Path(data_dir)
         self.app_id = app_id
-
         self.nav_port = 16002
         self.xlsx_port = 16000
-
-        self._nav = None
-        self._xlsx = None
-
-        self._nav_url = None
-        self._xlsx_url = None
-
+        self._nav: Optional[_UvicornThread] = None
+        self._xlsx: Optional[_UvicornThread] = None
         self._svc_root = Path(__file__).resolve().parents[1] / "services"
-        self._nav_root = self._svc_root / "nav_report"
-        self._xlsx_root = self._svc_root / "xlsx_merge"
+        self.services = {
+            "nav_report": self._svc_root / "nav_report",
+            "xlsx_merge": self._svc_root / "xlsx_merge",
+        }
 
-    def _nav_main_file(self) -> Path:
-        # 兼容两种结构：
-        # services/nav_report/app/main.py 或 services/nav_report/main.py
-        p1 = self._nav_root / "app" / "main.py"
-        p2 = self._nav_root / "main.py"
+    @property
+    def nav_base_url(self) -> str:
+        return f"http://127.0.0.1:{self.nav_port}"
+
+    @property
+    def xlsx_base_url(self) -> str:
+        return f"http://127.0.0.1:{self.xlsx_port}"
+
+    def update_data_root(self, new_root: str) -> None:
+        self.data_root = Path(new_root)
+
+    def _config_path(self) -> Path:
+        return self.data_root / "config" / "config.json"
+
+    def _service_data_dir(self, name: str) -> Path:
+        if name == "nav_report":
+            return self.data_root / "6002" / "nav_report"
+        if name == "xlsx_merge":
+            return self.data_root / "6000" / "xlsx_merge"
+        raise RuntimeError(f"unknown service: {name}")
+
+    def _service_main_file(self, name: str) -> Path:
+        svc_root = self.services[name]
+        p1 = svc_root / "app" / "main.py"
+        p2 = svc_root / "main.py"
         return p1 if p1.exists() else p2
 
-    def _xlsx_main_file(self) -> Path:
-        p1 = self._xlsx_root / "app" / "main.py"
-        p2 = self._xlsx_root / "main.py"
-        return p1 if p1.exists() else p2
+    def _service_thread(self, name: str) -> Optional[_UvicornThread]:
+        return self._nav if name == "nav_report" else self._xlsx
 
-    def start_all(self):
-        # 尝试从 config.json 覆盖端口
-        cfgp = self.data_dir / "config" / "config.json"
-        cfg = {}
-        if cfgp.exists():
+    def _set_service_thread(self, name: str, value: Optional[_UvicornThread]) -> None:
+        if name == "nav_report":
+            self._nav = value
+        else:
+            self._xlsx = value
+
+    def _load_cfg(self) -> Dict[str, Any]:
+        if self._config_path().exists():
             try:
-                cfg = json.loads(cfgp.read_text(encoding="utf-8"))
-                self.nav_port = int(cfg.get("nav_port", self.nav_port))
-                self.xlsx_port = int(cfg.get("xlsx_port", self.xlsx_port))
+                return json.loads(self._config_path().read_text(encoding="utf-8"))
             except Exception:
-                cfg = {}
+                return {}
+        return {}
 
-        self._nav_url = f"http://127.0.0.1:{self.nav_port}"
-        self._xlsx_url = f"http://127.0.0.1:{self.xlsx_port}"
+    def _write_env(self, name: str, env_map: Dict[str, Any]) -> Path:
+        svc_data = self._service_data_dir(name)
+        svc_data.mkdir(parents=True, exist_ok=True)
+        env_path = svc_data / ".env"
+        lines = []
+        for k, v in env_map.items():
+            if v is None:
+                continue
+            vv = str(v).replace("\n", " ").strip()
+            lines.append(f"{k}={vv}")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.environ.update({k: str(v) for k, v in env_map.items() if v is not None})
+        os.environ["SERVICE_CONFIG"] = str(self._config_path())
+        return env_path
 
-        # 服务模块在 import 阶段就会读取环境变量，必须先应用本地配置。
+    def _build_env_map(self, name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        if name == "nav_report":
+            data_dir = self._service_data_dir(name)
+            allowlist_codes = cfg.get("allowlist_codes")
+            if not allowlist_codes:
+                dbp = self.data_root / "config" / "config.db"
+                if dbp.exists():
+                    import sqlite3
+                    with sqlite3.connect(dbp) as conn:
+                        cur = conn.execute("SELECT code FROM product_allowlist WHERE enabled=1 ORDER BY code")
+                        allowlist_codes = ",".join([r[0] for r in cur.fetchall()])
+            return {
+                "DATA_DIR": data_dir.as_posix(),
+                "PORT": cfg.get("nav_port", self.nav_port),
+                "IMAP_HOST": cfg.get("imap_host", "imap.qq.com"),
+                "IMAP_USER": cfg.get("imap_user", ""),
+                "IMAP_PASS": cfg.get("imap_pass", ""),
+                "IMAP_FOLDER": "INBOX",
+                "MAIL_LOOKBACK_DAYS": cfg.get("mail_lookback_days", cfg.get("lookback_days", 3)),
+                "IMAP_FOLDERS_MODE": cfg.get("imap_folders_mode", cfg.get("folder_mode", "all")),
+                "IMAP_FOLDERS": cfg.get("imap_folders", cfg.get("folders", "INBOX")),
+                "IMAP_FOLDERS_BLACKLIST": cfg.get("imap_folders_blacklist", cfg.get("folders_blacklist", "")),
+                "WECOM_PUSH_ENABLED": "1" if cfg.get("push_enabled", True) else "0",
+                "WECOM_WEBHOOK_URL": cfg.get("wecom_webhook_url", ""),
+                "PRODUCT_CODE_ALLOWLIST": allowlist_codes or "",
+                "PUSH_SLOTS": cfg.get("push_slots", "14:00,16:00,16:46"),
+            }
+        data_dir = self._service_data_dir(name)
+        return {
+            "DATA_DIR": data_dir.as_posix(),
+            "PORT": cfg.get("xlsx_port", self.xlsx_port),
+        }
+
+    def apply_config(self, cfg: Dict[str, Any]) -> None:
+        if cfg.get("data_root"):
+            self.update_data_root(str(cfg["data_root"]))
+        self.nav_port = int(cfg.get("nav_port", self.nav_port))
+        self.xlsx_port = int(cfg.get("xlsx_port", self.xlsx_port))
+        self._write_env("nav_report", self._build_env_map("nav_report", cfg))
+        self._write_env("xlsx_merge", self._build_env_map("xlsx_merge", cfg))
+
+    def start_all(self) -> None:
+        cfg = self._load_cfg()
         self.apply_config(cfg)
+        self.start("nav_report")
+        self.start("xlsx_merge")
 
-        # nav_report
-        if self._nav is None:
-            nav_app = _load_fastapi_app_from_file(self._nav_main_file(), "app")
-            self._nav = _UvicornThread(nav_app, "127.0.0.1", self.nav_port, log_level="info")
-            self._nav.start()
+    def start(self, name: str) -> None:
+        cfg = self._load_cfg()
+        self.apply_config(cfg)
+        current = self._service_thread(name)
+        if current and self._is_up(self._health_url(name)):
+            return
+        app = _load_fastapi_app_from_file(self._service_main_file(name), "app", module_name=f"{name}_{int(time.time()*1000)}")
+        port = self.nav_port if name == "nav_report" else self.xlsx_port
+        thr = _UvicornThread(app, "127.0.0.1", port, log_level="info")
+        self._set_service_thread(name, thr)
+        thr.start()
+        self._wait_health(self._health_url(name), timeout=25)
 
-        # xlsx_merge（暂时先起服务，后续再接 UI）
-        if self._xlsx is None and self._xlsx_main_file().exists():
-            try:
-                xlsx_app = _load_fastapi_app_from_file(self._xlsx_main_file(), "app")
-                self._xlsx = _UvicornThread(xlsx_app, "127.0.0.1", self.xlsx_port, log_level="info")
-                self._xlsx.start()
-            except Exception:
-                # 合表服务失败也不阻塞 6002 主链路
-                self._xlsx = None
+    def stop(self, name: str) -> None:
+        current = self._service_thread(name)
+        if current:
+            current.stop()
+        self._set_service_thread(name, None)
 
-        # 等待 nav health
-        self._wait_health(self._nav_url + "/health", timeout=25)
+    def stop_all(self) -> None:
+        self.stop("nav_report")
+        self.stop("xlsx_merge")
 
-    def stop_all(self):
-        if self._nav:
-            self._nav.stop()
-        if self._xlsx:
-            self._xlsx.stop()
+    def restart_with_env(self, name: str, env: Dict[str, Any]) -> None:
+        self._write_env(name, env)
+        self.stop(name)
+        self.start(name)
 
     def status(self) -> Dict[str, str]:
-        st = {"nav_report": "DOWN", "xlsx_merge": "DOWN"}
-        if self._nav_url and self._is_up(self._nav_url + "/health"):
-            st["nav_report"] = "UP"
-        if self._xlsx_url and self._is_up(self._xlsx_url + "/health"):
-            st["xlsx_merge"] = "UP"
-        return st
-
-    def apply_config(self, cfg: Dict[str, Any]):
-        """
-        把桌面端配置写入 nav_report 的运行目录（本地保存全部文件）
-        """
-        # 本地 nav_report 数据目录
-        nav_data = self.data_dir / "services" / "nav_report"
-        nav_data.mkdir(parents=True, exist_ok=True)
-
-        # 生成 .env（服务会用 python-dotenv 读取）
-        # 产品白名单：禁用后报表完全不出现
-        allowlist_codes = cfg.get("allowlist_codes", None)
-        if not allowlist_codes:
-            # 从本地 config.db 取 enabled=1 的 code
-            try:
-                import sqlite3
-                dbp = self.data_dir / "config" / "config.db"
-                with sqlite3.connect(dbp) as conn:
-                    cur = conn.execute("SELECT code FROM product_allowlist WHERE enabled=1 ORDER BY code")
-                    allowlist_codes = ",".join([r[0] for r in cur.fetchall()])
-            except Exception:
-                allowlist_codes = ""
-
-        env_lines = [
-            f"DATA_DIR={nav_data.as_posix()}",
-            f"IMAP_HOST={cfg.get('imap_host','imap.qq.com')}",
-            f"IMAP_USER={cfg.get('imap_user','')}",
-            f"IMAP_PASS={cfg.get('imap_pass','')}",
-            f"IMAP_FOLDER=INBOX",
-            f"MAIL_LOOKBACK_DAYS={int(cfg.get('lookback_days',3))}",
-            f"IMAP_FOLDERS_MODE={cfg.get('folder_mode','all')}",
-            f"IMAP_FOLDERS_BLACKLIST={cfg.get('folders_blacklist','')}",
-            f"WECOM_PUSH_ENABLED={'1' if cfg.get('push_enabled',True) else '0'}",
-            f"WECOM_WEBHOOK_URL={cfg.get('wecom_webhook_url','')}",
-            f"PRODUCT_CODE_ALLOWLIST={allowlist_codes or ''}",
-            # slot
-            "PUSH_SLOTS=14:00,16:00,16:46",
-        ]
-        (nav_data / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
-
-        # 当前进程也同步设置，保证通过 importlib 启动服务时能读到正确路径。
-        env_map = {
-            "DATA_DIR": nav_data.as_posix(),
-            "IMAP_HOST": str(cfg.get("imap_host", "imap.qq.com")),
-            "IMAP_USER": str(cfg.get("imap_user", "")),
-            "IMAP_PASS": str(cfg.get("imap_pass", "")),
-            "IMAP_FOLDER": "INBOX",
-            "MAIL_LOOKBACK_DAYS": str(int(cfg.get("lookback_days", 3))),
-            "IMAP_FOLDERS_MODE": str(cfg.get("folder_mode", "all")),
-            "IMAP_FOLDERS_BLACKLIST": str(cfg.get("folders_blacklist", "")),
-            "WECOM_PUSH_ENABLED": "1" if cfg.get("push_enabled", True) else "0",
-            "WECOM_WEBHOOK_URL": str(cfg.get("wecom_webhook_url", "")),
-            "PRODUCT_CODE_ALLOWLIST": allowlist_codes or "",
-            "PUSH_SLOTS": "14:00,16:00,16:46",
+        return {
+            "nav_report": "UP" if self._is_up(self._health_url("nav_report")) else "DOWN",
+            "xlsx_merge": "UP" if self._is_up(self._health_url("xlsx_merge")) else "DOWN",
         }
-        os.environ.update(env_map)
 
     def test_webhook(self, url: str) -> Tuple[bool, str]:
         try:
-            r = requests.post(url, json={"msgtype":"markdown","markdown":{"content":"【大可客户端】Webhook 测试 ✅"}}, timeout=10)
+            r = requests.post(url, json={"msgtype": "markdown", "markdown": {"content": "【大可客户端】Webhook 测试 ✅"}}, timeout=10)
             if r.status_code != 200:
                 return False, f"HTTP {r.status_code}"
             j = r.json()
@@ -200,47 +215,50 @@ class LocalServiceRunner:
             return False, str(e)
 
     def call_nav_fetch_probe(self, push: bool = False) -> Dict[str, Any]:
-        """
-        启动自检试抓：不推送，允许窗口外抓（force）
-        """
-        self.start_all()
+        self.start("nav_report")
         payload = {
             "force": True,
             "strict": False,
-            "push": False if not push else True,
+            "push": bool(push),
             "lookback_days": 3,
             "target_val_date_only": False,
         }
-        # 优先用 fetch_backfill（不会被窗口限制）
-        url = self._nav_url + "/api/fetch_backfill"
-        r = requests.post(url, json=payload, timeout=60)
-        try:
-            return r.json()
-        except Exception:
-            return {"ok": False, "status_code": r.status_code, "body": r.text}
+        return self.post_json(self.nav_base_url + "/api/fetch_backfill", payload, timeout=120)
 
-    def call_nav_process_slot(self, slot: str, push: bool, force: bool = True) -> Dict[str, Any]:
-        self.start_all()
-        url = self._nav_url + "/api/process_slot"
+    def call_nav_process_slot(self, slot: str, push: bool, force: bool = True, date_str: str = "") -> Dict[str, Any]:
+        self.start("nav_report")
         payload = {"slot": slot, "force": bool(force), "push": bool(push)}
-        r = requests.post(url, json=payload, timeout=180)
-        try:
-            return r.json()
-        except Exception:
-            return {"ok": False, "status_code": r.status_code, "body": r.text}
+        if date_str:
+            payload["date_str"] = date_str
+        return self.post_json(self.nav_base_url + "/api/process_slot", payload, timeout=300)
 
-    # ------------- helpers -------------
+    def get_json(self, url: str, timeout: int = 20) -> Dict[str, Any]:
+        try:
+            r = requests.get(url, timeout=timeout)
+            return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": False, "status_code": r.status_code, "body": r.text}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def post_json(self, url: str, payload: Dict[str, Any], timeout: int = 60) -> Dict[str, Any]:
+        try:
+            r = requests.post(url, json=payload, timeout=timeout)
+            return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": False, "status_code": r.status_code, "body": r.text}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _health_url(self, name: str) -> str:
+        return (self.nav_base_url if name == "nav_report" else self.xlsx_base_url) + "/health"
+
     def _is_up(self, url: str) -> bool:
         try:
-            r = requests.get(url, timeout=3)
+            r = requests.get(url, timeout=2)
             return r.status_code == 200
         except Exception:
             return False
 
-    def _wait_health(self, url: str, timeout: int = 20):
-        t0 = time.time()
-        while time.time() - t0 < timeout:
+    def _wait_health(self, url: str, timeout: int = 20) -> None:
+        start = time.time()
+        while time.time() - start < timeout:
             if self._is_up(url):
                 return
             time.sleep(0.4)
-        # 不中断，由上层自检提示

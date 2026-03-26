@@ -28,3 +28,10 @@ data/
 C:\\DakeClient\\data/
 backup_local_patch_*/
 xlsx_merge_6000/
+logs/
+data/logs/
+dist_runtime_6000/
+dist_runtime_6002/
+DakeClient6000-windows.zip
+DakeClient6002-windows.zip
+SHA256.txt
