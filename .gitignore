@@ -26,3 +26,5 @@ data/
 
 # local macOS test artifact for Windows default path
 C:\\DakeClient\\data/
+backup_local_patch_*/
+xlsx_merge_6000/
