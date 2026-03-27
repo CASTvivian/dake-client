@@ -15,6 +15,14 @@ hiddenimports = [
     "pyzmail36",
     "requests",
     "dotenv",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "openpyxl",
+    "xlrd",
+    "xlsxwriter",
+    "multipart",
+    "pydantic",
     "PySide6",
 ]
 
@@ -23,6 +31,14 @@ packages = [
     "pyzmail36",
     "requests",
     "dotenv",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "openpyxl",
+    "xlrd",
+    "xlsxwriter",
+    "multipart",
+    "pydantic",
     "PySide6",
 ]
 

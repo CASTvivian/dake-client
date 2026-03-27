@@ -1,6 +1,7 @@
 PySide6==6.7.2
 pyinstaller==6.10.0
 fastapi
+starlette
 uvicorn
 python-dotenv
 requests
@@ -15,3 +16,4 @@ sse-starlette
 pyzmail36
 xlsxwriter
 python-multipart
+pydantic

@@ -15,6 +15,7 @@ hiddenimports = [
     "pyzmail36",
     "requests",
     "dotenv",
+    "starlette",
     "openpyxl",
     "xlrd",
     "pandas",
@@ -23,9 +24,10 @@ hiddenimports = [
     "matplotlib",
     "fastapi",
     "uvicorn",
+    "sse_starlette",
     "xlsxwriter",
-    "pyzmail36",
     "multipart",
+    "pydantic",
 ]
 
 packages = [
@@ -33,6 +35,7 @@ packages = [
     "pyzmail36",
     "requests",
     "imapclient",
+    "starlette",
     "openpyxl",
     "xlrd",
     "pandas",
@@ -40,11 +43,12 @@ packages = [
     "matplotlib",
     "fastapi",
     "uvicorn",
+    "sse_starlette",
     "dotenv",
     "PySide6",
     "xlsxwriter",
-    "pyzmail36",
     "multipart",
+    "pydantic",
 ]
 
 datas, binaries, hidden = [], [], []
