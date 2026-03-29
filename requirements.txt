@@ -5,6 +5,7 @@ starlette
 uvicorn
 python-dotenv
 requests
+numpy
 openpyxl
 xlrd==1.2.0
 pandas
