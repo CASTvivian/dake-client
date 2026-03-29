@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import traceback
 from pathlib import Path
 
 import requests
@@ -29,7 +30,7 @@ def _bootstrap_qt_plugin_path():
 
 _bootstrap_qt_plugin_path()
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -62,6 +63,25 @@ APP_TITLE = tr("app_6002_title")
 DEFAULT_DATA_DIR = r"C:\DakeClient\data" if os.name == "nt" else str(Path.home() / "DakeClient" / "data")
 
 
+def _append_crash_log(msg: str) -> None:
+    try:
+        log_dir = Path(DEFAULT_DATA_DIR) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / "crash.log", "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    txt = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    _append_crash_log(txt)
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+sys.excepthook = _global_excepthook
+
+
 def resource_path(rel: str) -> str:
     base = Path(getattr(sys, "_MEIPASS", REPO_ROOT))
     candidates = [base / rel, base / "client_app" / rel]
@@ -80,6 +100,13 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
+class UiSignals(QObject):
+    log = Signal(str)
+    error = Signal(str)
+    refresh_status = Signal()
+    products_loaded = Signal(list)
+
+
 class Main6002(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -92,6 +119,11 @@ class Main6002(QMainWindow):
 
         self._timers: list[QTimer] = []
         self._last_success_text = self.cfg.get("last_success_push", "--")
+        self.signals = UiSignals()
+        self.signals.log.connect(self._log_on_ui)
+        self.signals.error.connect(self._show_error_on_ui)
+        self.signals.refresh_status.connect(self._refresh_status_labels)
+        self.signals.products_loaded.connect(self._apply_products_on_ui)
 
         self._build_ui()
         self._build_tray()
@@ -260,8 +292,29 @@ class Main6002(QMainWindow):
         event.ignore()
 
     def _log(self, msg: str):
+        try:
+            self.signals.log.emit(str(msg))
+        except Exception:
+            pass
+
+    @Slot(str)
+    def _log_on_ui(self, msg: str):
         now = datetime.datetime.now().strftime("%H:%M:%S")
         self.log.appendPlainText(f"[{now}] {msg}")
+
+    @Slot(str)
+    def _show_error_on_ui(self, msg: str):
+        self._log_on_ui(f"错误: {msg}")
+
+    @Slot(list)
+    def _apply_products_on_ui(self, items: list):
+        self.tbl_products.setRowCount(0)
+        for item in items:
+            row = self.tbl_products.rowCount()
+            self.tbl_products.insertRow(row)
+            self.tbl_products.setItem(row, 0, QTableWidgetItem(str(item.get("code", ""))))
+            self.tbl_products.setItem(row, 1, QTableWidgetItem(str(item.get("display_name", ""))))
+            self.tbl_products.setItem(row, 2, QTableWidgetItem("启用" if int(item.get("enabled", 1)) == 1 else "禁用"))
 
     def _pick_dir(self):
         d = QFileDialog.getExistingDirectory(self, "选择数据根目录", self.ed_data_root.text().strip() or DEFAULT_DATA_DIR)
@@ -383,17 +436,11 @@ class Main6002(QMainWindow):
 
     def _load_products(self):
         data = self.runner.get_json(self.runner.nav_base_url + "/api/products")
-        self.tbl_products.setRowCount(0)
         items = data.get("items", []) if data.get("ok") else []
         if not data.get("ok"):
             self._log(f"读取产品列表失败：{data}")
             return
-        for item in items:
-            row = self.tbl_products.rowCount()
-            self.tbl_products.insertRow(row)
-            self.tbl_products.setItem(row, 0, QTableWidgetItem(str(item.get("code", ""))))
-            self.tbl_products.setItem(row, 1, QTableWidgetItem(str(item.get("display_name", ""))))
-            self.tbl_products.setItem(row, 2, QTableWidgetItem("启用" if int(item.get("enabled", 1)) == 1 else "禁用"))
+        self.signals.products_loaded.emit(items)
 
     def _add_or_update_product(self):
         code = self.ed_code.text().strip().upper()
@@ -447,7 +494,7 @@ class Main6002(QMainWindow):
 
     def _boot_sequence(self):
         self._save_and_apply(startup=True)
-        self._selfcheck()
+        QTimer.singleShot(800, self._selfcheck)
 
     def _selfcheck(self):
         def worker():
@@ -456,19 +503,19 @@ class Main6002(QMainWindow):
             health = self.runner.get_json(self.runner.nav_base_url + "/health")
             if not health.get("ok"):
                 self._log(f"{tr('log_selfcheck_fail')} nav_report /health 不可用：{health}")
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
                 return
             products = self.runner.get_json(self.runner.nav_base_url + "/api/products")
             if not products.get("ok"):
                 self._log(f"{tr('log_selfcheck_fail')} /api/products 读取失败：{products}")
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
                 return
             resp = self.runner.call_nav_process_slot(slot="14:00", push=False, force=True)
             if not resp.get("ok"):
                 self._log(f"{tr('log_selfcheck_fail')} 试跑失败：{resp}")
             else:
                 self._log(f"{tr('log_selfcheck_ok')} 目标日={resp.get('target_date', '--')}")
-            self._refresh_status_labels()
+            self.signals.refresh_status.emit()
             self._load_products()
 
         threading.Thread(target=worker, daemon=True).start()
@@ -495,7 +542,7 @@ class Main6002(QMainWindow):
                         missing=",".join(missing) if missing else tr("preview_none"),
                     )
                 )
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
             except FileNotFoundError as e:
                 self._log(f"内置服务文件缺失：{e}")
             except Exception as e:
@@ -554,13 +601,13 @@ class Main6002(QMainWindow):
                     self.cfg = self.store.load()
                     self._last_success_text = stamp
                 self._log(f"{prefix} {slot} 完成 ✅ {json.dumps(resp, ensure_ascii=False)[:500]}")
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
             except FileNotFoundError as e:
                 self._log(f"内置服务文件缺失：{e}")
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
             except Exception as e:
                 self._log(f"{slot} 执行失败：{e}")
-                self._refresh_status_labels()
+                self.signals.refresh_status.emit()
 
         threading.Thread(target=worker, daemon=True).start()
 

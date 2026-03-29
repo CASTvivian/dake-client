@@ -28,6 +28,7 @@ def _bootstrap_qt_plugin_path():
 
 _bootstrap_qt_plugin_path()
 
+from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -75,6 +76,13 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
+class UiSignals(QObject):
+    log = Signal(str)
+    error = Signal(str)
+    refresh_status = Signal()
+    refresh_outputs = Signal()
+
+
 class Main6000(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -86,6 +94,11 @@ class Main6000(QMainWindow):
         self.cfg = self.store.load()
         self.runner = LocalServiceRunner(self.store.get_data_root(), app_id="6000")
         self.selected_files: list[str] = []
+        self.signals = UiSignals()
+        self.signals.log.connect(self._log_on_ui)
+        self.signals.error.connect(self._show_error_on_ui)
+        self.signals.refresh_status.connect(self._refresh_status)
+        self.signals.refresh_outputs.connect(self._refresh_outputs)
 
         self._build_ui()
         self._load_cfg_to_ui()
@@ -155,8 +168,19 @@ class Main6000(QMainWindow):
         layout.addWidget(box_log, 1)
 
     def _log(self, msg: str):
+        try:
+            self.signals.log.emit(str(msg))
+        except Exception:
+            pass
+
+    @Slot(str)
+    def _log_on_ui(self, msg: str):
         now = datetime.datetime.now().strftime("%H:%M:%S")
         self.log.appendPlainText(f"[{now}] {msg}")
+
+    @Slot(str)
+    def _show_error_on_ui(self, msg: str):
+        self._log_on_ui(f"错误: {msg}")
 
     def _load_cfg_to_ui(self):
         self.cfg = self.store.load()
@@ -264,8 +288,8 @@ class Main6000(QMainWindow):
                 )
                 if result.get("ok"):
                     self._log(f"{tr('log_merge_done')} 输出：{result.get('out_file')}")
-                    self._refresh_outputs()
-                    self._refresh_status()
+                    self.signals.refresh_outputs.emit()
+                    self.signals.refresh_status.emit()
                 else:
                     self._log(f"{tr('log_merge_fail')}：{result.get('error')}")
             except FileNotFoundError as e:
